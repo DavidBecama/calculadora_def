@@ -1,0 +1,548 @@
+import { useState, useMemo, useCallback } from "react";
+
+// ═══════════════════════════════════════════════════════════
+// DATA: All tariff scales, services, reductions
+// ═══════════════════════════════════════════════════════════
+
+const ESCALA = [
+  { desde: 0, hasta: 6010.12, fijo: 90.15, permil: 0, acum: 0 },
+  { desde: 6010.13, hasta: 30050.61, fijo: 0, permil: 4.5, acum: 90.15 },
+  { desde: 30050.62, hasta: 60101.21, fijo: 0, permil: 1.5, acum: 198.33 },
+  { desde: 60101.22, hasta: 150253.03, fijo: 0, permil: 1.0, acum: 243.41 },
+  { desde: 150253.04, hasta: 601012.10, fijo: 0, permil: 0.5, acum: 333.56 },
+  { desde: 601012.11, hasta: 6010121.04, fijo: 0, permil: 0.3, acum: 558.94 },
+];
+
+const TARIFAS = {
+  doc_sin_cuantia: 30.05,
+  acta_sin_cuantia: 36.06,
+  diligencia: 3.01,
+  protocolo_electronico: 9.03,
+  precio_poderdante: 6.010121,
+  coste_firma: 3.00506,
+  coste_doc: 6.01012,
+  copia_autorizada_folio: 3.005061,
+  copia_autorizada_folio_12: 1.50253,
+  copia_simple_folio: 0.601012,
+  folio_matriz_desde_5: 6.010121,
+  folio_timbrado: 0.15,
+  iva: 21,
+  irpf: 15,
+};
+
+const SUPLIDOS = {
+  mensajeria: 18.0,
+  registro_mercantil: 12.0,
+  apostilla_normal: 39.0,
+  apostilla_urgente: 47.0,
+  tramite_mercantil: 150.0,
+  gestion_poder_mercantil: 75.0,
+};
+
+const CATEGORIAS = [
+  {
+    id: "inmobiliario", nombre: "Inmobiliario", icon: "🏠",
+    servicios: [
+      { id: "compraventa", nombre: "Compraventa de inmueble", tipo: "cuantia", subtipos: ["vivienda", "garaje", "solar", "rustica", "otro"], reducciones: { vivienda: 28.75, garaje: 5, solar: 5, rustica: 5, otro: 5 }, validado: true },
+      { id: "prestamo", nombre: "Préstamo hipotecario", tipo: "cuantia", subtipos: ["vivienda", "otro"], reducciones: { vivienda: 46.56, otro: 28.75 }, validado: true },
+      { id: "cancelacion", nombre: "Cancelación de hipoteca", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "novacion", nombre: "Novación hipotecaria", tipo: "especial", nota: "Doc sin cuantía (30,05€) por Ley 41/2007", tarifa: 30.05, validado: false },
+      { id: "subrogacion", nombre: "Subrogación de acreedor", tipo: "cuantia", reducciones: { _default: 52.5 }, validado: false },
+      { id: "extincion", nombre: "Extinción de condominio", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "arras", nombre: "Contrato de arras", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "opcion_compra", nombre: "Opción de compra", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "obra_nueva", nombre: "Declaración de obra nueva", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "division_h", nombre: "División horizontal", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "acta_lcci", nombre: "Acta de transparencia (LCCI)", tipo: "especial", nota: "Regulación específica 2019", validado: false },
+      { id: "acta_fijacion", nombre: "Acta de fijación de saldo", tipo: "fijo", tarifa: 36.06, validado: true },
+    ]
+  },
+  {
+    id: "sucesiones", nombre: "Sucesiones", icon: "📜",
+    servicios: [
+      { id: "testamento", nombre: "Testamento", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "testamento_vital", nombre: "Testamento vital", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "herederos", nombre: "Declaración de herederos", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "herencia", nombre: "Aceptación de herencia", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "renuncia_h", nombre: "Renuncia de herencia", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "donacion", nombre: "Donación", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "adicion", nombre: "Adición de herencia", tipo: "cuantia", reducciones: { _default: 5 }, validado: false },
+      { id: "legado", nombre: "Entrega de legados", tipo: "cuantia", reducciones: { _default: 5 }, validado: false },
+      { id: "cert_europeo", nombre: "Certificado sucesorio europeo", tipo: "fijo", tarifa: 30.05, validado: false },
+    ]
+  },
+  {
+    id: "mercantil", nombre: "Mercantil", icon: "🏢",
+    servicios: [
+      { id: "const_sociedad", nombre: "Constitución de sociedad", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "const_srl_tel", nombre: "Constitución SRL telemática", tipo: "especial", nota: "150€ (capital≥3.100€) ó 60€ (capital<3.100€)", validado: true },
+      { id: "cv_participaciones", nombre: "Compraventa participaciones", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "aumento_capital", nombre: "Aumento de capital", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "reduccion_capital", nombre: "Reducción de capital", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "disolucion", nombre: "Disolución/liquidación sociedad", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "cese_nomb", nombre: "Cese y nombramiento administrador", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "modif_estatutos", nombre: "Modificación de estatutos", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "elev_publica", nombre: "Elevación a público", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "acta_junta", nombre: "Acta notarial de Junta", tipo: "fijo", tarifa: 36.06, validado: false },
+    ]
+  },
+  {
+    id: "familia", nombre: "Familia", icon: "👨‍👩‍👧",
+    servicios: [
+      { id: "matrimonio", nombre: "Matrimonio", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "capit_antes", nombre: "Capitulaciones (antes matrim.)", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "capit_despues", nombre: "Capitulaciones (después matrim.)", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "divorcio", nombre: "Divorcio", tipo: "cuantia", reducciones: { _default: 5 }, validado: true },
+      { id: "pareja", nombre: "Pareja de hecho", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "disol_pareja", nombre: "Disolución pareja de hecho", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "emancipacion", nombre: "Emancipación", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "tutor", nombre: "Nombramiento de tutor", tipo: "fijo", tarifa: 30.05, validado: false },
+      { id: "autocuratela", nombre: "Autocuratela", tipo: "fijo", tarifa: 30.05, validado: false },
+    ]
+  },
+  {
+    id: "poderes", nombre: "Poderes", icon: "✍️",
+    servicios: [
+      { id: "poder_general", nombre: "Poder general", tipo: "poder", validado: true },
+      { id: "poder_especial", nombre: "Poder especial", tipo: "poder", validado: true },
+      { id: "poder_pleitos", nombre: "Poder para pleitos", tipo: "poder", validado: true },
+      { id: "poder_preventivo", nombre: "Poder preventivo", tipo: "poder", validado: true },
+      { id: "poder_mercantil", nombre: "Poder general mercantil", tipo: "poder", validado: true },
+      { id: "ratificacion", nombre: "Ratificación", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "revocacion", nombre: "Revocación de poder", tipo: "fijo", tarifa: 30.05, validado: true },
+      { id: "sustitucion", nombre: "Sustitución de poder", tipo: "fijo", tarifa: 30.05, validado: false },
+    ]
+  },
+  {
+    id: "actas", nombre: "Actas", icon: "📋",
+    servicios: [
+      { id: "acta_manif", nombre: "Acta de manifestaciones", tipo: "fijo", tarifa: 36.06, validado: true },
+      { id: "acta_presencia", nombre: "Acta de presencia", tipo: "fijo", tarifa: 36.06, validado: true },
+      { id: "acta_notif", nombre: "Acta de notificación", tipo: "fijo", tarifa: 36.06, validado: true },
+      { id: "acta_notor", nombre: "Acta de notoriedad", tipo: "fijo", tarifa: 36.06, validado: false },
+      { id: "acta_protoc", nombre: "Acta de protocolización", tipo: "fijo", tarifa: 36.06, validado: false },
+      { id: "acta_deposito", nombre: "Acta de depósito", tipo: "fijo", tarifa: 36.06, validado: false },
+      { id: "acta_sorteo", nombre: "Acta de sorteo", tipo: "fijo", tarifa: 36.06, validado: false },
+    ]
+  },
+  {
+    id: "adicionales", nombre: "Otros servicios", icon: "📎",
+    servicios: [
+      { id: "polizas", nombre: "Pólizas", tipo: "cuantia", reducciones: { _default: 0 }, nota: "Descuento libre", validado: false },
+      { id: "legitimaciones", nombre: "Legitimaciones de firma", tipo: "legitimacion", validado: true },
+      { id: "testimonios", nombre: "Testimonios", tipo: "testimonio", validado: true },
+      { id: "segundas_copias", nombre: "Segundas copias", tipo: "copia", validado: true },
+    ]
+  },
+];
+
+// ═══════════════════════════════════════════════════════════
+// CALCULATION ENGINE
+// ═══════════════════════════════════════════════════════════
+
+function calcHonorarios(cuantia) {
+  if (cuantia <= 0) return 0;
+  if (cuantia <= 6010.12) return 90.15;
+  for (const t of ESCALA) {
+    if (cuantia >= t.desde && (t.hasta === null || cuantia <= t.hasta)) {
+      if (t.fijo) return t.fijo;
+      return t.acum + (cuantia - t.desde + 0.01) * (t.permil / 1000);
+    }
+  }
+  const last = ESCALA[ESCALA.length - 1];
+  return last.acum + (cuantia - last.desde + 0.01) * (last.permil / 1000);
+}
+
+function calcCopiaAutorizada(folios, copias = 1) {
+  if (folios <= 0) return 0;
+  if (folios <= 11) return copias * folios * TARIFAS.copia_autorizada_folio;
+  return copias * (11 * TARIFAS.copia_autorizada_folio + (folios - 11) * TARIFAS.copia_autorizada_folio_12);
+}
+
+function calcCopiaSimple(folios, copias = 1) {
+  return copias * folios * TARIFAS.copia_simple_folio;
+}
+
+function calcFoliosMatriz(folios) {
+  if (folios <= 4) return 0;
+  return (folios - 4) * TARIFAS.folio_matriz_desde_5;
+}
+
+function calcPoder(poderdantes, apoderados) {
+  return TARIFAS.doc_sin_cuantia * poderdantes * apoderados;
+}
+
+function calcLegitimacion(numLegit, numFirmas) {
+  if (numFirmas <= 0) return 0;
+  const ptas = numFirmas === 1 ? 1000 : 1000 + 500 * (numFirmas - 1);
+  return (ptas / 166.386) * numLegit;
+}
+
+function calcTestimonio(numTest, folios) {
+  if (folios <= 0) return 0;
+  const ptas = folios === 1 ? 500 : 500 + 100 * (folios - 1);
+  return (ptas / 166.386) * numTest;
+}
+
+function fmt(n) { return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+// ═══════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════
+
+export default function App() {
+  const [catId, setCatId] = useState("inmobiliario");
+  const [svcId, setSvcId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [inputs, setInputs] = useState({
+    cuantia: "", subtipo: "", folios_matriz: "8", copias_aut: "1", folios_aut: "6",
+    copias_sim: "1", folios_sim: "6", poderdantes: "1", apoderados: "1",
+    num_legit: "1", num_firmas: "1", num_test: "1", folios_test: "2",
+    incluir_protocolo: true, incluir_timbrado: true,
+  });
+
+  const setInput = useCallback((k, v) => setInputs(p => ({ ...p, [k]: v })), []);
+
+  const currentCat = CATEGORIAS.find(c => c.id === catId);
+  const currentSvc = currentCat?.servicios.find(s => s.id === svcId);
+
+  const filteredServices = useMemo(() => {
+    if (!search.trim()) return null;
+    const q = search.toLowerCase();
+    const results = [];
+    for (const cat of CATEGORIAS) {
+      for (const svc of cat.servicios) {
+        if (svc.nombre.toLowerCase().includes(q)) results.push({ ...svc, catId: cat.id, catNombre: cat.nombre });
+      }
+    }
+    return results;
+  }, [search]);
+
+  const calc = useMemo(() => {
+    if (!currentSvc) return null;
+    const r = { honorarios: 0, reduccion_pct: 0, reduccion_nombre: "", honorarios_reducidos: 0, copias_aut: 0, copias_sim: 0, folios_matriz: 0, protocolo: 0, timbrado: 0, subtotal: 0, iva: 0, irpf: 0, total: 0 };
+    const cuantia = parseFloat(inputs.cuantia?.replace(/\./g, "").replace(",", ".")) || 0;
+    const folMat = parseInt(inputs.folios_matriz) || 0;
+    const copAut = parseInt(inputs.copias_aut) || 0;
+    const folAut = parseInt(inputs.folios_aut) || 0;
+    const copSim = parseInt(inputs.copias_sim) || 0;
+    const folSim = parseInt(inputs.folios_sim) || 0;
+
+    switch (currentSvc.tipo) {
+      case "cuantia": {
+        r.honorarios = calcHonorarios(cuantia);
+        const sub = inputs.subtipo || "_default";
+        r.reduccion_pct = currentSvc.reducciones?.[sub] ?? currentSvc.reducciones?._default ?? 5;
+        r.honorarios_reducidos = r.honorarios * (1 - r.reduccion_pct / 100);
+        break;
+      }
+      case "fijo":
+        r.honorarios = currentSvc.tarifa || TARIFAS.doc_sin_cuantia;
+        r.honorarios_reducidos = r.honorarios;
+        break;
+      case "poder": {
+        const pd = parseInt(inputs.poderdantes) || 1;
+        const ap = parseInt(inputs.apoderados) || 1;
+        r.honorarios = calcPoder(pd, ap);
+        r.honorarios_reducidos = r.honorarios;
+        break;
+      }
+      case "legitimacion":
+        r.honorarios = calcLegitimacion(parseInt(inputs.num_legit) || 1, parseInt(inputs.num_firmas) || 1);
+        r.honorarios_reducidos = r.honorarios;
+        break;
+      case "testimonio":
+        r.honorarios = calcTestimonio(parseInt(inputs.num_test) || 1, parseInt(inputs.folios_test) || 1);
+        r.honorarios_reducidos = r.honorarios;
+        break;
+      case "copia":
+        r.copias_aut = calcCopiaAutorizada(folAut, copAut);
+        r.honorarios = r.copias_aut;
+        r.honorarios_reducidos = r.honorarios;
+        break;
+      case "especial":
+        r.honorarios = currentSvc.tarifa || 0;
+        r.honorarios_reducidos = r.honorarios;
+        break;
+      default:
+        r.honorarios_reducidos = r.honorarios;
+    }
+
+    if (currentSvc.tipo !== "copia" && currentSvc.tipo !== "legitimacion" && currentSvc.tipo !== "testimonio") {
+      r.copias_aut = calcCopiaAutorizada(folAut, copAut);
+      r.copias_sim = calcCopiaSimple(folSim, copSim);
+      r.folios_matriz = calcFoliosMatriz(folMat);
+    }
+    if (inputs.incluir_protocolo) r.protocolo = TARIFAS.protocolo_electronico;
+    if (inputs.incluir_timbrado) r.timbrado = folMat * TARIFAS.folio_timbrado;
+    r.subtotal = r.honorarios_reducidos + r.copias_aut + r.copias_sim + r.folios_matriz + r.protocolo + r.timbrado;
+    r.iva = r.subtotal * TARIFAS.iva / 100;
+    r.irpf = r.subtotal * TARIFAS.irpf / 100;
+    r.total = r.subtotal + r.iva - r.irpf;
+    return r;
+  }, [currentSvc, inputs]);
+
+  const stats = useMemo(() => {
+    let total = 0, validados = 0;
+    CATEGORIAS.forEach(c => c.servicios.forEach(s => { total++; if (s.validado) validados++; }));
+    return { total, validados, pct: Math.round(validados / total * 100) };
+  }, []);
+
+  return (
+    <div style={{ fontFamily: "'IBM Plex Sans', 'SF Pro', system-ui, sans-serif", background: "#0c0e13", color: "#e8e6e3", minHeight: "100vh" }}>
+      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+      {/* HEADER */}
+      <div style={{ background: "linear-gradient(135deg, #141720 0%, #1a1f2e 100%)", borderBottom: "1px solid #2a2f3e", padding: "20px 24px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
+                <span style={{ color: "#c9a55a" }}>⚖️</span> Motor Arancelario Notarial
+              </h1>
+              <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>RD 1426/1989 · Texto consolidado · v1.0</p>
+            </div>
+            <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+              <div style={{ background: "#1e2433", borderRadius: 8, padding: "8px 14px", border: "1px solid #2a2f3e" }}>
+                <span style={{ color: "#6b7280" }}>Servicios</span>
+                <span style={{ display: "block", fontSize: 18, fontWeight: 700, color: "#c9a55a" }}>{stats.total}</span>
+              </div>
+              <div style={{ background: "#1e2433", borderRadius: 8, padding: "8px 14px", border: "1px solid #2a2f3e" }}>
+                <span style={{ color: "#6b7280" }}>Validados</span>
+                <span style={{ display: "block", fontSize: 18, fontWeight: 700, color: "#4ade80" }}>{stats.pct}%</span>
+              </div>
+            </div>
+          </div>
+          <input value={search} onChange={e => { setSearch(e.target.value); if (!e.target.value) setSvcId(null); }}
+            placeholder="Buscar servicio..." style={{ width: "100%", marginTop: 14, padding: "10px 14px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 8, color: "#e8e6e3", fontSize: 14, outline: "none" }} />
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 24px" }}>
+        {/* SEARCH RESULTS */}
+        {filteredServices && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>{filteredServices.length} resultados</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {filteredServices.map(s => (
+                <button key={s.id} onClick={() => { setCatId(s.catId); setSvcId(s.id); setSearch(""); }}
+                  style={{ padding: "8px 14px", background: "#1e2433", border: "1px solid #2a2f3e", borderRadius: 8, color: "#e8e6e3", cursor: "pointer", fontSize: 13, textAlign: "left" }}>
+                  <span style={{ color: "#6b7280", fontSize: 11 }}>{s.catNombre} → </span>{s.nombre}
+                  {!s.validado && <span style={{ marginLeft: 6, fontSize: 10, color: "#f59e0b" }}>⚠ pendiente</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!filteredServices && (
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {/* LEFT: Categories + Services */}
+            <div style={{ flex: "1 1 340px", minWidth: 300 }}>
+              {/* Category tabs */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {CATEGORIAS.map(c => (
+                  <button key={c.id} onClick={() => { setCatId(c.id); setSvcId(null); }}
+                    style={{ padding: "6px 12px", borderRadius: 6, border: catId === c.id ? "1px solid #c9a55a" : "1px solid #2a2f3e", background: catId === c.id ? "#c9a55a15" : "#1e2433", color: catId === c.id ? "#c9a55a" : "#9ca3af", fontSize: 12, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    {c.icon} {c.nombre}
+                  </button>
+                ))}
+              </div>
+
+              {/* Service list */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {currentCat?.servicios.map(s => (
+                  <button key={s.id} onClick={() => setSvcId(s.id)}
+                    style={{ padding: "10px 14px", background: svcId === s.id ? "#1e2840" : "#14161d", border: svcId === s.id ? "1px solid #3b5998" : "1px solid transparent", borderRadius: 8, color: "#e8e6e3", cursor: "pointer", textAlign: "left", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center", transition: "all 0.15s" }}>
+                    <span>
+                      {s.nombre}
+                      {s.nota && <span style={{ display: "block", fontSize: 11, color: "#6b7280", marginTop: 2 }}>{s.nota}</span>}
+                    </span>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: s.tipo === "cuantia" ? "#3b599830" : s.tipo === "fijo" ? "#4ade8020" : "#f59e0b20", color: s.tipo === "cuantia" ? "#60a5fa" : s.tipo === "fijo" ? "#4ade80" : "#f59e0b" }}>
+                        {s.tipo === "cuantia" ? "Nº2" : s.tipo === "fijo" ? "Nº1" : s.tipo}
+                      </span>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.validado ? "#4ade80" : "#f59e0b" }} title={s.validado ? "Validado" : "Pendiente"} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* RIGHT: Calculator */}
+            <div style={{ flex: "1 1 400px", minWidth: 320 }}>
+              {!currentSvc ? (
+                <div style={{ background: "#14161d", borderRadius: 12, padding: 32, textAlign: "center", border: "1px solid #1e2433" }}>
+                  <p style={{ color: "#6b7280", fontSize: 14 }}>← Selecciona un servicio para calcular</p>
+                  <p style={{ color: "#4b5563", fontSize: 12, marginTop: 8 }}>84 servicios · 7 categorías · 14 reducciones documentadas</p>
+                </div>
+              ) : (
+                <div style={{ background: "#14161d", borderRadius: 12, border: "1px solid #1e2433", overflow: "hidden" }}>
+                  {/* Service header */}
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2433", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>{currentSvc.nombre}</h2>
+                      <p style={{ fontSize: 11, color: "#6b7280", margin: "2px 0 0" }}>
+                        {currentSvc.tipo === "cuantia" ? "Documento de cuantía (Nº 2.1)" : currentSvc.tipo === "fijo" ? "Documento sin cuantía (Nº 1)" : currentSvc.tipo}
+                      </p>
+                    </div>
+                    <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, background: currentSvc.validado ? "#4ade8015" : "#f59e0b15", color: currentSvc.validado ? "#4ade80" : "#f59e0b", border: `1px solid ${currentSvc.validado ? "#4ade8030" : "#f59e0b30"}` }}>
+                      {currentSvc.validado ? "✓ Validado BOE" : "⚠ Pendiente Noting"}
+                    </span>
+                  </div>
+
+                  <div style={{ padding: "16px 20px" }}>
+                    {/* INPUTS by type */}
+                    {currentSvc.tipo === "cuantia" && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {currentSvc.subtipos && (
+                          <div>
+                            <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Subtipo</label>
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                              {currentSvc.subtipos.map(st => (
+                                <button key={st} onClick={() => setInput("subtipo", st)}
+                                  style={{ padding: "5px 10px", borderRadius: 5, border: inputs.subtipo === st ? "1px solid #c9a55a" : "1px solid #2a2f3e", background: inputs.subtipo === st ? "#c9a55a20" : "#0c0e13", color: inputs.subtipo === st ? "#c9a55a" : "#9ca3af", fontSize: 12, cursor: "pointer", textTransform: "capitalize" }}>
+                                  {st}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Cuantía de la operación (€)</label>
+                          <input value={inputs.cuantia} onChange={e => setInput("cuantia", e.target.value)}
+                            placeholder="Ej: 250.000" style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono', monospace", outline: "none" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {currentSvc.tipo === "poder" && (
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Poderdantes</label>
+                          <input type="number" min="1" value={inputs.poderdantes} onChange={e => setInput("poderdantes", e.target.value)}
+                            style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Apoderados</label>
+                          <input type="number" min="1" value={inputs.apoderados} onChange={e => setInput("apoderados", e.target.value)}
+                            style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {currentSvc.tipo === "legitimacion" && (
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Nº legitimaciones</label>
+                          <input type="number" min="1" value={inputs.num_legit} onChange={e => setInput("num_legit", e.target.value)}
+                            style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Nº firmas</label>
+                          <input type="number" min="1" value={inputs.num_firmas} onChange={e => setInput("num_firmas", e.target.value)}
+                            style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {currentSvc.tipo === "testimonio" && (
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Nº testimonios</label>
+                          <input type="number" min="1" value={inputs.num_test} onChange={e => setInput("num_test", e.target.value)}
+                            style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 4 }}>Folios</label>
+                          <input type="number" min="1" value={inputs.folios_test} onChange={e => setInput("folios_test", e.target.value)}
+                            style={{ width: "100%", padding: "9px 12px", background: "#0c0e13", border: "1px solid #2a2f3e", borderRadius: 6, color: "#e8e6e3", fontSize: 15, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Common: folios & copies (for non-simple types) */}
+                    {!["legitimacion", "testimonio", "copia"].includes(currentSvc.tipo) && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #1e2433" }}>
+                        <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 8, fontWeight: 600 }}>Copias y folios</p>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          {[
+                            ["folios_matriz", "Folios matriz"],
+                            ["copias_aut", "Copias autorizadas"],
+                            ["folios_aut", "Folios/copia aut."],
+                            ["copias_sim", "Copias simples"],
+                            ["folios_sim", "Folios/copia sim."],
+                          ].map(([k, label]) => (
+                            <div key={k}>
+                              <label style={{ fontSize: 10, color: "#4b5563", display: "block", marginBottom: 2 }}>{label}</label>
+                              <input type="number" min="0" value={inputs[k]} onChange={e => setInput(k, e.target.value)}
+                                style={{ width: "100%", padding: "6px 8px", background: "#0c0e13", border: "1px solid #1e2433", borderRadius: 4, color: "#9ca3af", fontSize: 13, fontFamily: "'IBM Plex Mono'", outline: "none" }} />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12 }}>
+                          <label style={{ color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                            <input type="checkbox" checked={inputs.incluir_protocolo} onChange={e => setInput("incluir_protocolo", e.target.checked)} /> Protocolo electrónico
+                          </label>
+                          <label style={{ color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                            <input type="checkbox" checked={inputs.incluir_timbrado} onChange={e => setInput("incluir_timbrado", e.target.checked)} /> Papel timbrado
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* RESULTS */}
+                    {calc && (
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #1e2433" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
+                          <Row label="Honorarios brutos (Nº 2)" value={calc.honorarios} />
+                          {calc.reduccion_pct > 0 && (
+                            <Row label={`Reducción acumulada (−${calc.reduccion_pct}%)`} value={-(calc.honorarios - calc.honorarios_reducidos)} color="#f59e0b" />
+                          )}
+                          <Row label="Honorarios netos" value={calc.honorarios_reducidos} bold />
+                          {calc.copias_aut > 0 && <Row label="Copias autorizadas (Nº 4)" value={calc.copias_aut} />}
+                          {calc.copias_sim > 0 && <Row label="Copias simples (Nº 4)" value={calc.copias_sim} />}
+                          {calc.folios_matriz > 0 && <Row label="Folios de matriz (Nº 7)" value={calc.folios_matriz} />}
+                          {calc.protocolo > 0 && <Row label="Protocolo electrónico" value={calc.protocolo} />}
+                          {calc.timbrado > 0 && <Row label="Papel timbrado" value={calc.timbrado} />}
+
+                          <div style={{ borderTop: "1px solid #2a2f3e", marginTop: 6, paddingTop: 6 }}>
+                            <Row label="Subtotal" value={calc.subtotal} bold />
+                            <Row label={`IVA (${TARIFAS.iva}%)`} value={calc.iva} />
+                            <Row label={`IRPF (−${TARIFAS.irpf}%)`} value={-calc.irpf} color="#f59e0b" />
+                          </div>
+
+                          <div style={{ borderTop: "2px solid #c9a55a40", marginTop: 6, paddingTop: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#c9a55a" }}>
+                              <span>TOTAL</span>
+                              <span>{fmt(calc.total)} €</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {!currentSvc.validado && (
+                          <div style={{ marginTop: 12, padding: "10px 12px", background: "#f59e0b10", border: "1px solid #f59e0b30", borderRadius: 6, fontSize: 11, color: "#f59e0b" }}>
+                            ⚠ Este cálculo está pendiente de validación contra Noting. Puede haber reducciones o variables adicionales no contempladas.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, bold, color }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontWeight: bold ? 600 : 400, color: color || (bold ? "#e8e6e3" : "#9ca3af") }}>
+      <span style={{ fontSize: 12 }}>{label}</span>
+      <span>{fmt(value)} €</span>
+    </div>
+  );
+}
