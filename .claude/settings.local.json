@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init)",
+      "Bash(git add .gitignore eslint.config.js index.html package-lock.json package.json vite.config.js public/ src/ README.md)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
