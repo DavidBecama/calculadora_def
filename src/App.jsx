@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { CATEGORIAS_NOTING } from "./notingData";
 
 // ═══════════════════════════════════════════════════════════
@@ -103,7 +103,7 @@ const GASTOS_EXTERNOS = [
   { id: "g_incr_anejo", n: "Incr. anejo solarium", coste: 3 },
   { id: "g_nota_marg_energ", n: "Nota marginal cert. energética", coste: 9 },
   { id: "g_obt_cert_seguros", n: "Obtención cert. registro seguros", coste: 20 },
-  { id: "g_obt_cert_catastral", n: "Obtención certificado catastral", coste: 10 },
+  { id: "g_obt_cert_catastral", n: "Obtención certificado catastral", coste: 20 },
   { id: "g_obt_cert_rauv", n: "Obtención certificados del rauv", coste: 20 },
   { id: "g_otros_gastos", n: "Otros gastos", coste: 40, editable: true },
   { id: "g_peticion_nota", n: "Petición de nota", coste: 15 },
@@ -117,11 +117,17 @@ const GASTOS_EXTERNOS = [
 ];
 
 const SUPLIDOS_CAT = [
-  { id: "s_na_octava", n: "Nª Octava", coste: 30 },
+  { id: "s_na_octava", n: "Nª Octava", coste: 1.80 },
   { id: "s_correos", n: "Correos", coste: 10 },
   { id: "s_otros_suplidos", n: "Otros suplidos", coste: 10, editable: true },
   { id: "s_pago_signo", n: "Pago por uso plataforma SIGNO (ANCERT)", coste: 0, editable: true },
   { id: "s_taxi", n: "Taxi", coste: 10 },
+];
+
+const TIPOS_INTERVINIENTE = [
+  "Poderdante", "Apoderado", "Concedente/Consentidor", "Albacea/Contador",
+  "Hijos", "Letrado", "Testigos", "Causante", "Invitado", "Menor",
+  "Socio", "Requerido", "Sociedad Creada",
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -186,19 +192,31 @@ function getTipoLabel(tipo) {
 // INITIAL STATE BUILDERS
 // ═══════════════════════════════════════════════════════════
 
-function buildInitialAranc() {
+const DEFAULT_ARANC = ["test_cotejo_pe", "test_hash", "dil_deposito_pe", "dil_incorp_pe"];
+const DEFAULT_ARANC_FOLIOS = { test_cotejo_pe: 4 };
+const DEFAULT_GASTOS = ["g_consulta_deudas", "g_obt_cert_catastral", "g_otros_gastos", "g_peticion_nota", "g_pres_telematica", "g_solicitud_cif"];
+const DEFAULT_SUPLIDOS = ["s_pago_signo", "s_na_octava"];
+
+function buildInitialAranc(withDefaults = false) {
   const state = {};
   DOCS_ADICIONALES.forEach(d => { state[d.id] = { checked: false }; });
   TESTIMONIOS.forEach(t => { state[t.id] = { checked: false, folios: t.folios }; });
   DILIGENCIAS.forEach(d => { state[d.id] = { checked: false }; });
+  if (withDefaults) {
+    DEFAULT_ARANC.forEach(id => { if (state[id]) { state[id].checked = true; if (DEFAULT_ARANC_FOLIOS[id] !== undefined) state[id].folios = DEFAULT_ARANC_FOLIOS[id]; } });
+  }
   return state;
 }
 
-function buildInitialGastosSuplidos() {
+function buildInitialGastosSuplidos(withDefaults = false) {
   const gastos = {};
   GASTOS_EXTERNOS.forEach(g => { gastos[g.id] = { checked: false, coste: g.coste }; });
   const suplidos = {};
   SUPLIDOS_CAT.forEach(s => { suplidos[s.id] = { checked: false, coste: s.coste }; });
+  if (withDefaults) {
+    DEFAULT_GASTOS.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
+    DEFAULT_SUPLIDOS.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
+  }
   return { gastos, suplidos };
 }
 
@@ -592,6 +610,87 @@ body { margin: 0; background: #f5f5f4; }
 .mono { font-family: 'JetBrains Mono', monospace; }
 .sep { height: 1px; background: #e7e5e4; margin: 8px 0; }
 
+/* ── INTERVINIENTES TABLE ── */
+.interv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.interv-table th {
+  text-align: left;
+  font-size: 9px;
+  font-weight: 600;
+  color: #a8a29e;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 4px 6px;
+  white-space: nowrap;
+}
+.interv-table td {
+  padding: 3px 4px;
+  vertical-align: middle;
+}
+.interv-table tr:not(:last-child) td {
+  border-bottom: 1px solid #f5f5f4;
+}
+.interv-inp {
+  width: 100%;
+  padding: 5px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid #e7e5e4;
+  border-radius: 5px;
+  background: #fff;
+  color: #1c1917;
+  outline: none;
+}
+.interv-inp:focus { border-color: #92702a; }
+.interv-sel {
+  width: 100%;
+  padding: 5px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid #e7e5e4;
+  border-radius: 5px;
+  background: #fff;
+  color: #1c1917;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' fill='%23a8a29e'%3E%3Cpath d='M4 6L0 1.5h8z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px;
+}
+.interv-sel:focus { border-color: #92702a; }
+.btn-remove {
+  background: none;
+  border: none;
+  color: #d6d3d1;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.btn-remove:hover { color: #ef4444; background: rgba(239,68,68,0.06); }
+.btn-add-interv {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 12px;
+  background: #f5f5f4;
+  border: 1px dashed #d6d3d1;
+  border-radius: 6px;
+  color: #78716c;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.btn-add-interv:hover { background: #e7e5e4; color: #1c1917; border-color: #a8a29e; }
+
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .layout { flex-direction: column; }
@@ -620,6 +719,15 @@ export default function App() {
   const [gsState, setGsState] = useState(() => buildInitialGastosSuplidos());
   const [gsOpen, setGsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [intervinientes, setIntervinientes] = useState([]);
+  const [intervOpen, setIntervOpen] = useState(false);
+
+  const addInterviniente = useCallback(() => {
+    setIntervinientes(p => [...p, { id: Date.now(), tipo: "Poderdante", dni: "", nombre: "", apellidos: "", nr: false }]);
+    setIntervOpen(true);
+  }, []);
+  const removeInterviniente = useCallback((id) => setIntervinientes(p => p.filter(i => i.id !== id)), []);
+  const updateInterviniente = useCallback((id, field, value) => setIntervinientes(p => p.map(i => i.id === id ? { ...i, [field]: value } : i)), []);
 
   const setInput = useCallback((k, v) => setInputs(p => ({ ...p, [k]: v })), []);
   const toggleAranc = useCallback((id) => setAranc(p => ({ ...p, [id]: { ...p[id], checked: !p[id].checked } })), []);
@@ -635,6 +743,17 @@ export default function App() {
   const currentVariant = hasVariants && varIdx >= 0 ? currentAct.v[varIdx] : null;
   const activeSvc = currentVariant || (currentAct && !hasVariants ? currentAct : null);
   const tipoCalculo = activeSvc ? getTipoCalculo(activeSvc) : null;
+
+  const prevActiveSvcRef = useRef(null);
+  useEffect(() => {
+    if (activeSvc && activeSvc !== prevActiveSvcRef.current) {
+      setAranc(buildInitialAranc(true));
+      setGsState(buildInitialGastosSuplidos(true));
+      setArancOpen(true);
+      setGsOpen(true);
+    }
+    prevActiveSvcRef.current = activeSvc;
+  }, [activeSvc]);
 
   const searchResults = useMemo(() => {
     if (!search.trim() || search.length < 2) return null;
@@ -680,7 +799,7 @@ export default function App() {
     const folAut = parseInt(inputs.folios_aut) || 0;
     const copSim = parseInt(inputs.copias_sim) || 0;
     const folSim = parseInt(inputs.folios_sim) || 0;
-    const r = { honorarios: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, base_irpf: 0, irpf: 0, total: 0, aplicaIva: activeSvc.iv };
+    const r = { honorarios: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
     switch (tipo) {
       case "cuantia":
         r.honorarios = calcEscala(cuantia);
@@ -704,7 +823,8 @@ export default function App() {
     r.iva = r.aplicaIva ? r.base_iva * TARIFAS.iva / 100 : 0;
     r.base_irpf = r.honorarios_netos;
     r.irpf = r.base_irpf * TARIFAS.irpf / 100;
-    r.total = r.derechos + r.gastos + r.suplidos + r.iva - r.irpf;
+    r.total = r.derechos + r.gastos + r.suplidos + r.iva;
+    r.liquido = r.total - r.irpf;
     return r;
   }, [activeSvc, inputs, arancTotals, gsTotals]);
 
@@ -721,8 +841,8 @@ export default function App() {
   const handleCargarPreset = useCallback(() => {
     if (!presetKey) return;
     const p = PRESETS[presetKey];
-    const na = buildInitialAranc(); p.aranc.forEach(id => { if (na[id]) na[id].checked = true; }); setAranc(na);
-    const ng = buildInitialGastosSuplidos(); p.gastos.forEach(id => { if (ng.gastos[id]) ng.gastos[id].checked = true; }); p.suplidos.forEach(id => { if (ng.suplidos[id]) ng.suplidos[id].checked = true; }); setGsState(ng);
+    const na = buildInitialAranc(true); p.aranc.forEach(id => { if (na[id]) na[id].checked = true; }); setAranc(na);
+    const ng = buildInitialGastosSuplidos(true); p.gastos.forEach(id => { if (ng.gastos[id]) ng.gastos[id].checked = true; }); p.suplidos.forEach(id => { if (ng.suplidos[id]) ng.suplidos[id].checked = true; }); setGsState(ng);
     setArancOpen(true); setGsOpen(true);
   }, [presetKey]);
 
@@ -731,6 +851,7 @@ export default function App() {
     setInputs({ cuantia: "", folios_matriz: "4", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4" });
     setAranc(buildInitialAranc()); setArancOpen(false);
     setGsState(buildInitialGastosSuplidos()); setGsOpen(false);
+    setIntervinientes([]); setIntervOpen(false);
   }, []);
 
   const handleCopiarDesglose = useCallback(async () => {
@@ -757,10 +878,11 @@ export default function App() {
     L.push("---");
     L.push(`Base IVA:                    ${fmt(calc.base_iva)} \u20ac`);
     L.push(`IVA (${TARIFAS.iva}%):                   ${calc.aplicaIva ? fmt(calc.iva) : "0,00"} \u20ac`);
-    L.push(`Base IRPF:                   ${fmt(calc.base_irpf)} \u20ac`);
-    L.push(`IRPF (-${TARIFAS.irpf}%):                -${fmt(calc.irpf)} \u20ac`);
     L.push("===");
     L.push(`TOTAL:                       ${fmt(calc.total)} \u20ac`);
+    L.push("");
+    L.push(`Retenci\u00f3n IRPF (${TARIFAS.irpf}%):       -${fmt(calc.irpf)} \u20ac`);
+    L.push(`L\u00edquido a percibir:          ${fmt(calc.liquido)} \u20ac`);
     try { await navigator.clipboard.writeText(L.join("\n")); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
   }, [calc, activeSvc, displayName, tipoCalculo]);
 
@@ -867,6 +989,67 @@ export default function App() {
                 {activeSvc.cl && <span>Clave reg.: <b style={{ color: "#44403c" }}>{activeSvc.cl}</b></span>}
                 {activeSvc.f > 0 && tipoCalculo !== "cuantia" && <span>Tarifa fija: <b style={{ color: "#92702a" }}>{fmt(activeSvc.f)} {"\u20ac"}</b></span>}
               </div>
+            </div>
+          )}
+
+          {/* Intervinientes */}
+          {activeSvc && (
+            <div className="card" style={{ overflow: "hidden" }}>
+              <button className="collapse-btn" onClick={() => setIntervOpen(!intervOpen)}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 9, color: "#a8a29e", transition: "transform 0.15s", transform: intervOpen ? "rotate(90deg)" : "rotate(0)", display: "inline-block" }}>▶</span>
+                  <span className="collapse-title">Intervinientes</span>
+                  {intervinientes.length > 0 && <span className="collapse-badge" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a" }}>{intervinientes.length}</span>}
+                </div>
+                {intervinientes.length > 0 && <span style={{ fontSize: 11, color: "#78716c" }}>{intervinientes.length} persona{intervinientes.length !== 1 ? "s" : ""}</span>}
+              </button>
+              {intervOpen && (
+                <div style={{ padding: "0 16px 14px", borderTop: "1px solid #e7e5e4" }}>
+                  {intervinientes.length > 0 && (
+                    <div style={{ overflowX: "auto", marginTop: 10 }}>
+                      <table className="interv-table">
+                        <thead>
+                          <tr>
+                            <th>Tipo</th>
+                            <th>DNI/NIF</th>
+                            <th>Nombre</th>
+                            <th>Apellidos</th>
+                            <th style={{ textAlign: "center" }}>NR</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {intervinientes.map(iv => (
+                            <tr key={iv.id}>
+                              <td style={{ minWidth: 130 }}>
+                                <select className="interv-sel" value={iv.tipo} onChange={e => updateInterviniente(iv.id, "tipo", e.target.value)}>
+                                  {TIPOS_INTERVINIENTE.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </td>
+                              <td style={{ minWidth: 90 }}>
+                                <input className="interv-inp" value={iv.dni} onChange={e => updateInterviniente(iv.id, "dni", e.target.value)} placeholder="12345678A" />
+                              </td>
+                              <td style={{ minWidth: 100 }}>
+                                <input className="interv-inp" value={iv.nombre} onChange={e => updateInterviniente(iv.id, "nombre", e.target.value)} placeholder="Nombre" />
+                              </td>
+                              <td style={{ minWidth: 130 }}>
+                                <input className="interv-inp" value={iv.apellidos} onChange={e => updateInterviniente(iv.id, "apellidos", e.target.value)} placeholder="Apellidos" />
+                              </td>
+                              <td style={{ width: 30, textAlign: "center" }}>
+                                <input type="checkbox" checked={iv.nr} onChange={() => updateInterviniente(iv.id, "nr", !iv.nr)} style={{ accentColor: "#92702a", width: 13, height: 13, cursor: "pointer" }} />
+                              </td>
+                              <td style={{ width: 28 }}>
+                                <button className="btn-remove" onClick={() => removeInterviniente(iv.id)} title="Eliminar">&times;</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <button className="btn-add-interv" onClick={addInterviniente}>+ Añadir interviniente</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1028,11 +1211,18 @@ export default function App() {
 
                   <div className="factura-divider" />
                   <FRow label={`IVA (${TARIFAS.iva}%)`} value={calc.aplicaIva ? calc.iva : 0} />
-                  <FRow label={`IRPF (\u2212${TARIFAS.irpf}%)`} value={-calc.irpf} color="#92702a" />
 
                   <div className="factura-total">
                     <span className="lbl-total">Total</span>
                     <span className="val-total">{fmt(calc.total)} {"\u20ac"}</span>
+                  </div>
+
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #e7e5e4" }}>
+                    <FRow label={`Retención IRPF (${TARIFAS.irpf}%)`} value={-calc.irpf} color="#92702a" />
+                    <div className="factura-row highlight" style={{ fontSize: 13, marginTop: 2 }}>
+                      <span>Líquido a percibir</span>
+                      <span className="val" style={{ fontWeight: 700 }}>{fmt(calc.liquido)} {"\u20ac"}</span>
+                    </div>
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
