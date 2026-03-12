@@ -72,9 +72,10 @@ const DILIGENCIAS = [
   { id: "dil_otras", n: "Otras diligencias", coste: 3.01 },
 ];
 
-function calcTestimonio(t, folios) {
+function calcTestimonio(t, folios, costeBase) {
   if (t.especial) return folios * TARIFAS.copia_autorizada_folio;
-  return TARIFAS.testimonio_base + folios * TARIFAS.copia_simple_folio;
+  const base = costeBase !== undefined ? costeBase : TARIFAS.testimonio_base;
+  return base + folios * TARIFAS.copia_simple_folio;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -189,76 +190,63 @@ function getTipoLabel(tipo) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// PRESETS POR CATEGORÍA
+// ═══════════════════════════════════════════════════════════
+
+const COMMON_ARANC = ["test_cotejo_pe", "test_hash", "dil_deposito_pe", "dil_incorp_pe"];
+const COMMON_ARANC_FOLIOS = { test_cotejo_pe: 4 };
+
+const PRESETS_POR_CATEGORIA = {
+  "05": { label: "Compraventa", gastos: ["g_consulta_deudas","g_obt_cert_catastral","g_otros_gastos","g_peticion_nota","g_pres_telematica","g_solicitud_cif"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "12": { label: "Hipoteca", gastos: ["g_consulta_deudas","g_peticion_nota","g_pres_telematica","g_otros_gastos"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "13": { label: "Cancelación", gastos: ["g_peticion_nota","g_pres_telematica"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "02": { label: "Testamento", gastos: ["g_cert_ult_volunt"], suplidos: ["s_pago_signo"] },
+  "14": { label: "Poder", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo"] },
+  "19": { label: "Sociedad", gastos: ["g_solicitud_cif","g_solicitud_denom","g_elab_estatutos","g_pres_telematica","g_otros_gastos"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "16": { label: "Acta", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo"] },
+  "07": { label: "Donación", gastos: ["g_consulta_deudas","g_obt_cert_catastral","g_peticion_nota","g_pres_telematica","g_gestion_impuestos"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "11": { label: "Herencia", gastos: ["g_consulta_deudas","g_obt_cert_catastral","g_cert_ult_volunt","g_cert_seguro_vida","g_peticion_nota","g_pres_telematica","g_gestion_impuestos","g_gestion_plusvalias"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "04": { label: "Urbanismo", gastos: ["g_obt_cert_catastral","g_peticion_nota","g_pres_telematica","g_const_ref_catastral"], suplidos: ["s_pago_signo","s_na_octava"] },
+  "03": { label: "Rég. matrimonial", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo"] },
+  _default: { label: "General", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo","s_na_octava"] },
+};
+
+function getPresetForCode(actId) {
+  if (!actId) return PRESETS_POR_CATEGORIA._default;
+  const prefix = actId.substring(0, 2);
+  // Hipoteca exception: 1230-1232 moratorias use default
+  if (prefix === "12" && actId >= "1230" && actId <= "1232") return PRESETS_POR_CATEGORIA._default;
+  return PRESETS_POR_CATEGORIA[prefix] || PRESETS_POR_CATEGORIA._default;
+}
+
+// ═══════════════════════════════════════════════════════════
 // INITIAL STATE BUILDERS
 // ═══════════════════════════════════════════════════════════
 
-const DEFAULT_ARANC = ["test_cotejo_pe", "test_hash", "dil_deposito_pe", "dil_incorp_pe"];
-const DEFAULT_ARANC_FOLIOS = { test_cotejo_pe: 4 };
-const DEFAULT_GASTOS = ["g_consulta_deudas", "g_obt_cert_catastral", "g_otros_gastos", "g_peticion_nota", "g_pres_telematica", "g_solicitud_cif"];
-const DEFAULT_SUPLIDOS = ["s_pago_signo", "s_na_octava"];
-
-function buildInitialAranc(withDefaults = false) {
+function buildInitialAranc(presetAranc = null) {
   const state = {};
-  DOCS_ADICIONALES.forEach(d => { state[d.id] = { checked: false }; });
-  TESTIMONIOS.forEach(t => { state[t.id] = { checked: false, folios: t.folios }; });
-  DILIGENCIAS.forEach(d => { state[d.id] = { checked: false }; });
-  if (withDefaults) {
-    DEFAULT_ARANC.forEach(id => { if (state[id]) { state[id].checked = true; if (DEFAULT_ARANC_FOLIOS[id] !== undefined) state[id].folios = DEFAULT_ARANC_FOLIOS[id]; } });
-  }
+  DOCS_ADICIONALES.forEach(d => { state[d.id] = { checked: false, coste: d.coste, modificado: false }; });
+  TESTIMONIOS.forEach(t => { state[t.id] = { checked: false, folios: t.folios, costeBase: TARIFAS.testimonio_base, modificado: false }; });
+  DILIGENCIAS.forEach(d => { state[d.id] = { checked: false, coste: d.coste, modificado: false }; });
+  const toCheck = presetAranc || COMMON_ARANC;
+  toCheck.forEach(id => {
+    if (state[id]) {
+      state[id].checked = true;
+      if (COMMON_ARANC_FOLIOS[id] !== undefined) state[id].folios = COMMON_ARANC_FOLIOS[id];
+    }
+  });
   return state;
 }
 
-function buildInitialGastosSuplidos(withDefaults = false) {
+function buildInitialGastosSuplidos(preset = null) {
+  const p = preset || PRESETS_POR_CATEGORIA._default;
   const gastos = {};
-  GASTOS_EXTERNOS.forEach(g => { gastos[g.id] = { checked: false, coste: g.coste }; });
+  GASTOS_EXTERNOS.forEach(g => { gastos[g.id] = { checked: false, coste: g.coste, modificado: false }; });
   const suplidos = {};
-  SUPLIDOS_CAT.forEach(s => { suplidos[s.id] = { checked: false, coste: s.coste }; });
-  if (withDefaults) {
-    DEFAULT_GASTOS.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
-    DEFAULT_SUPLIDOS.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
-  }
+  SUPLIDOS_CAT.forEach(s => { suplidos[s.id] = { checked: false, coste: s.coste, modificado: false }; });
+  p.gastos.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
+  p.suplidos.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
   return { gastos, suplidos };
-}
-
-// ═══════════════════════════════════════════════════════════
-// PRESETS
-// ═══════════════════════════════════════════════════════════
-
-const PRESETS = {
-  compraventa: {
-    label: "Compraventa",
-    match: (id) => id?.startsWith("0501"),
-    aranc: ["cert_catastral","cert_energetica","cons_titular_real","cons_ibi","ficha_liq_trib","nota_simple","test_medio_pago","test_recibo_ibi","verif_csv","dil_pres_telem","dil_recep_asiento","dil_recep_catastro","dil_recep_ayto","dil_recep_registro","dil_deposito_pe","dil_incorp_pe","dil_envio_catastro","dil_envio_ayto","dil_inscripcion"],
-    gastos: ["g_cert_const_energ","g_cert_pres_telem","g_const_idufir","g_const_coord_catas","g_const_ref_catastral","g_consulta_valor_ref","g_gestion_impuestos","g_gestion_plusvalias","g_nota_marg_energ","g_obt_cert_catastral","g_peticion_nota","g_pres_telematica"],
-    suplidos: ["s_na_octava","s_correos"],
-  },
-  hipoteca: {
-    label: "Hipoteca",
-    match: (id) => id?.startsWith("12"),
-    aranc: ["cert_catastral","cons_titular_real","nota_simple","test_medio_pago","verif_csv","dil_pres_telem","dil_recep_asiento","dil_recep_registro","dil_deposito_pe","dil_incorp_pe","dil_inscripcion"],
-    gastos: ["g_cert_pres_telem","g_const_idufir","g_const_ref_catastral","g_consulta_valor_ref","g_peticion_nota","g_pres_telematica"],
-    suplidos: ["s_na_octava","s_correos"],
-  },
-  testamento: {
-    label: "Testamento",
-    match: (id) => id?.startsWith("02"),
-    aranc: ["dil_deposito_pe","dil_incorp_pe"],
-    gastos: [], suplidos: [],
-  },
-  sociedad: {
-    label: "Sociedad",
-    match: (id) => id?.startsWith("19"),
-    aranc: ["dil_pres_telem","dil_recep_asiento","dil_recep_registro","dil_deposito_pe","dil_incorp_pe"],
-    gastos: ["g_cert_pres_telem","g_consulta_rm","g_elab_estatutos","g_solicitud_cif","g_solicitud_denom","g_pres_telematica"],
-    suplidos: ["s_na_octava"],
-  },
-};
-
-function detectPreset(actId) {
-  for (const [key, preset] of Object.entries(PRESETS)) {
-    if (preset.match(actId)) return key;
-  }
-  return null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -393,24 +381,29 @@ body { margin: 0; background: #f5f5f4; }
 }
 
 /* ── LAYOUT ── */
+.full-section {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px 24px;
+}
 .layout {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 18px 24px;
+  padding: 8px 24px 18px;
   display: flex;
   gap: 18px;
   align-items: flex-start;
 }
 .col-left {
-  flex: 1 1 0;
+  flex: 3 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 .col-right {
-  width: 360px;
-  flex-shrink: 0;
+  flex: 2 0 320px;
+  max-width: 400px;
   position: sticky;
   top: 18px;
 }
@@ -694,9 +687,11 @@ body { margin: 0; background: #f5f5f4; }
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .layout { flex-direction: column; }
-  .col-right { width: 100%; position: static; }
+  .col-right { flex: 1 1 100%; max-width: none; position: static; }
   .header-fields { flex-direction: column; }
   .header-field, .header-field.wide { min-width: 0; flex: 1 1 100%; }
+  .full-section { padding: 6px 16px; }
+  .layout { padding: 6px 16px 18px; }
 }
 `;
 
@@ -723,9 +718,9 @@ export default function App() {
   const [valorRefCatastral, setValorRefCatastral] = useState("");
   const [ley11_2023, setLey11_2023] = useState(false);
   const [aranc, setAranc] = useState(buildInitialAranc);
-  const [arancOpen, setArancOpen] = useState(false);
+  const [arancOpen, setArancOpen] = useState(true);
   const [gsState, setGsState] = useState(() => buildInitialGastosSuplidos());
-  const [gsOpen, setGsOpen] = useState(false);
+  const [gsOpen, setGsOpen] = useState(true);
   const [copied, setCopied] = useState(false);
   const [intervinientes, setIntervinientes] = useState([]);
   const [intervOpen, setIntervOpen] = useState(false);
@@ -771,10 +766,38 @@ export default function App() {
   const resyncBase = useCallback(() => { setBaseManual(false); setInputs(p => ({ ...p, base_minutable: p.cuantia })); }, []);
   const toggleAranc = useCallback((id) => setAranc(p => ({ ...p, [id]: { ...p[id], checked: !p[id].checked } })), []);
   const setArancFolios = useCallback((id, folios) => setAranc(p => ({ ...p, [id]: { ...p[id], folios: parseInt(folios) || 0 } })), []);
+  const setArancCoste = useCallback((id, coste) => setAranc(p => ({ ...p, [id]: { ...p[id], coste: parseFloat(coste) || 0, modificado: true } })), []);
+  const setArancCosteBase = useCallback((id, costeBase) => setAranc(p => ({ ...p, [id]: { ...p[id], costeBase: parseFloat(costeBase) || 0, modificado: true } })), []);
+  const resetArancCoste = useCallback((id) => {
+    setAranc(p => {
+      const item = p[id];
+      const doc = DOCS_ADICIONALES.find(d => d.id === id);
+      const dil = DILIGENCIAS.find(d => d.id === id);
+      const test = TESTIMONIOS.find(t => t.id === id);
+      if (doc) return { ...p, [id]: { ...item, coste: doc.coste, modificado: false } };
+      if (dil) return { ...p, [id]: { ...item, coste: dil.coste, modificado: false } };
+      if (test) return { ...p, [id]: { ...item, costeBase: TARIFAS.testimonio_base, modificado: false } };
+      return p;
+    });
+  }, []);
   const toggleGasto = useCallback((id) => setGsState(p => ({ ...p, gastos: { ...p.gastos, [id]: { ...p.gastos[id], checked: !p.gastos[id].checked } } })), []);
-  const setGastoCoste = useCallback((id, coste) => setGsState(p => ({ ...p, gastos: { ...p.gastos, [id]: { ...p.gastos[id], coste: parseFloat(coste) || 0 } } })), []);
+  const setGastoCoste = useCallback((id, coste) => setGsState(p => ({ ...p, gastos: { ...p.gastos, [id]: { ...p.gastos[id], coste: parseFloat(coste) || 0, modificado: true } } })), []);
+  const resetGastoCoste = useCallback((id) => {
+    const g = GASTOS_EXTERNOS.find(x => x.id === id);
+    if (g) setGsState(p => ({ ...p, gastos: { ...p.gastos, [id]: { ...p.gastos[id], coste: g.coste, modificado: false } } }));
+  }, []);
   const toggleSuplido = useCallback((id) => setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], checked: !p.suplidos[id].checked } } })), []);
-  const setSuplidoCoste = useCallback((id, coste) => setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste: parseFloat(coste) || 0 } } })), []);
+  const setSuplidoCoste = useCallback((id, coste) => setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste: parseFloat(coste) || 0, modificado: true } } })), []);
+  const resetSuplidoCoste = useCallback((id) => {
+    const s = SUPLIDOS_CAT.find(x => x.id === id);
+    if (s) setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste: s.coste, modificado: false } } }));
+  }, []);
+  const restablecerTodosGastos = useCallback(() => {
+    const preset = getPresetForCode(actId);
+    setGsState(buildInitialGastosSuplidos(preset));
+    setCustomGastos([]);
+    setCustomSuplidos([]);
+  }, [actId]);
 
   const currentCat = CATEGORIAS_NOTING.find(c => c.id === catId);
   const currentAct = currentCat?.acts.find(a => a.id === actId);
@@ -786,13 +809,17 @@ export default function App() {
   const prevActiveSvcRef = useRef(null);
   useEffect(() => {
     if (activeSvc && activeSvc !== prevActiveSvcRef.current) {
-      setAranc(buildInitialAranc(true));
-      setGsState(buildInitialGastosSuplidos(true));
+      const preset = getPresetForCode(actId);
+      setAranc(buildInitialAranc(COMMON_ARANC));
+      setGsState(buildInitialGastosSuplidos(preset));
+      setCustomAranc([]);
+      setCustomGastos([]);
+      setCustomSuplidos([]);
       setArancOpen(true);
       setGsOpen(true);
     }
     prevActiveSvcRef.current = activeSvc;
-  }, [activeSvc]);
+  }, [activeSvc, actId]);
 
   const searchResults = useMemo(() => {
     if (!search.trim() || search.length < 2) return null;
@@ -815,9 +842,9 @@ export default function App() {
 
   const arancTotals = useMemo(() => {
     let suma = 0, count = 0;
-    DOCS_ADICIONALES.forEach(d => { if (aranc[d.id]?.checked) { suma += d.coste; count++; } });
-    TESTIMONIOS.forEach(t => { if (aranc[t.id]?.checked) { suma += calcTestimonio(t, aranc[t.id].folios || 0); count++; } });
-    DILIGENCIAS.forEach(d => { if (aranc[d.id]?.checked) { suma += d.coste; count++; } });
+    DOCS_ADICIONALES.forEach(d => { if (aranc[d.id]?.checked) { suma += aranc[d.id].coste ?? d.coste; count++; } });
+    TESTIMONIOS.forEach(t => { if (aranc[t.id]?.checked) { suma += calcTestimonio(t, aranc[t.id].folios || 0, aranc[t.id].costeBase); count++; } });
+    DILIGENCIAS.forEach(d => { if (aranc[d.id]?.checked) { suma += aranc[d.id].coste ?? d.coste; count++; } });
     customAranc.forEach(c => { suma += c.coste; count++; });
     return { suma, count };
   }, [aranc, customAranc]);
@@ -900,22 +927,22 @@ export default function App() {
 
   const handleSearchSelect = (item) => { setCatId(item.catId); setActId(item.actId); setVarIdx(item.varIdx ?? -1); setSearch(""); };
   const displayName = currentVariant?.n || currentAct?.n || "";
-  const presetKey = detectPreset(actId);
+  const currentPreset = getPresetForCode(actId);
 
   const handleCargarPreset = useCallback(() => {
-    if (!presetKey) return;
-    const p = PRESETS[presetKey];
-    const na = buildInitialAranc(true); p.aranc.forEach(id => { if (na[id]) na[id].checked = true; }); setAranc(na);
-    const ng = buildInitialGastosSuplidos(true); p.gastos.forEach(id => { if (ng.gastos[id]) ng.gastos[id].checked = true; }); p.suplidos.forEach(id => { if (ng.suplidos[id]) ng.suplidos[id].checked = true; }); setGsState(ng);
+    const preset = getPresetForCode(actId);
+    setAranc(buildInitialAranc(COMMON_ARANC));
+    setGsState(buildInitialGastosSuplidos(preset));
+    setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
     setArancOpen(true); setGsOpen(true);
-  }, [presetKey]);
+  }, [actId]);
 
   const handleLimpiarTodo = useCallback(() => {
     setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
     setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
     setBaseManual(false); setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
-    setAranc(buildInitialAranc()); setArancOpen(false);
-    setGsState(buildInitialGastosSuplidos()); setGsOpen(false);
+    setAranc(buildInitialAranc([])); setArancOpen(true);
+    setGsState(buildInitialGastosSuplidos(PRESETS_POR_CATEGORIA._default)); setGsOpen(true);
     setIntervinientes([]); setIntervOpen(false);
     setNProtocolo(""); setEstado("Prevista");
     setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
@@ -991,7 +1018,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn btn-ghost" onClick={handleLimpiarTodo} style={{ fontSize: 11 }}>Limpiar</button>
-              {presetKey && <button className="btn btn-accent" onClick={handleCargarPreset} style={{ fontSize: 11 }}>Preset · {PRESETS[presetKey].label}</button>}
+              {activeSvc && <button className="btn btn-accent" onClick={handleCargarPreset} style={{ fontSize: 11 }}>Preset · {currentPreset.label}</button>}
             </div>
           </div>
 
@@ -1056,139 +1083,136 @@ export default function App() {
         </div>
       </div>
 
-      {/* ═══ 2-COLUMN LAYOUT ═══ */}
-      <div className="layout">
+      {/* ═══ FULL-WIDTH SECTIONS (3-5) ═══ */}
 
-        {/* ═══ COLUMNA IZQUIERDA ═══ */}
-        <div className="col-left">
+      {/* Badge de tipo de operación */}
+      {activeSvc && (
+        <div className="full-section">
+          <div style={{
+            background: "rgba(201,165,90,0.15)",
+            border: "1px solid rgba(201,165,90,0.3)",
+            borderRadius: 8,
+            padding: "12px 28px",
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            color: "#c9a55a",
+            textTransform: "uppercase",
+            textAlign: "center",
+          }}>
+            {currentVariant?.l || currentVariant?.n || currentAct?.n || ""}
+          </div>
+        </div>
+      )}
 
-          {/* Ficha + badge tipo Notinn */}
-          {activeSvc && (
-            <div className="card" style={{ padding: "16px 18px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "#78716c", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Ficha de la operación</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1917", lineHeight: 1.3 }}>{displayName}</div>
-                    <span style={{
-                      padding: "3px 10px", borderRadius: 100, fontSize: 10, fontWeight: 600,
-                      background: estado === "Autorizada" ? "rgba(5,150,105,0.1)" : estado === "Sin Factura" ? "rgba(168,162,158,0.15)" : "rgba(59,130,246,0.1)",
-                      color: estado === "Autorizada" ? "#059669" : estado === "Sin Factura" ? "#78716c" : "#3b82f6",
-                    }}>{estado}</span>
-                  </div>
-                </div>
-                <span className="badge-tipo" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a", border: "1px solid rgba(146,112,42,0.2)" }}>
-                  {getTipoLabel(tipoCalculo)}
-                </span>
-              </div>
-
-              {/* Protocolo + Estado */}
-              <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>N\u00ba Protocolo</label>
-                  <input className="inp inp-sm" value={nProtocolo} onChange={e => setNProtocolo(e.target.value)} placeholder="Ej: 69958" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Estado</label>
-                  <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11, width: "100%" }} value={estado} onChange={e => setEstado(e.target.value)}>
-                    <option value="Prevista">Prevista</option>
-                    <option value="Autorizada">Autorizada</option>
-                    <option value="Sin Factura">Sin Factura</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "5px 16px", fontSize: 11.5, color: "#78716c" }}>
-                <span>SIGNO: <b style={{ color: "#44403c" }}>{currentAct?.id}</b></span>
-                {tipoCalculo === "cuantia" && activeSvc.r > 0 && <span>Reducción: <b style={{ color: "#92702a" }}>{(activeSvc.r * 100).toFixed(2)}%</b></span>}
-                {tipoCalculo === "cuantia" && activeSvc.r > 0 && <span>Red. total: <b style={{ color: "#92702a" }}>{((1 - (1 - activeSvc.r) * 0.95) * 100).toFixed(2)}%</b></span>}
-                <span>IVA: <b style={{ color: "#44403c" }}>{activeSvc.iv ? "Sí" : "No"}</b></span>
-                <span>M. pago: <b style={{ color: activeSvc.mp === "Si" ? "#92702a" : "#44403c" }}>{activeSvc.mp === "Si" ? "Obligatorio" : activeSvc.mp === "Op" ? "Opcional" : "No"}</b></span>
-                {activeSvc.cl && <span>Clave reg.: <b style={{ color: "#44403c" }}>{activeSvc.cl}</b></span>}
-                {activeSvc.f > 0 && tipoCalculo !== "cuantia" && <span>Tarifa fija: <b style={{ color: "#92702a" }}>{fmt(activeSvc.f)} {"\u20ac"}</b></span>}
-              </div>
-            </div>
-          )}
-
-          {/* Badge de tipo de operación */}
-          {activeSvc && (
-            <div style={{
-              background: "rgba(201,165,90,0.15)",
-              border: "1px solid rgba(201,165,90,0.3)",
-              borderRadius: 8,
-              padding: "12px 28px",
-              fontSize: 14,
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              color: "#c9a55a",
-              textTransform: "uppercase",
-              textAlign: "center",
-              margin: "12px 0",
-            }}>
-              {currentVariant?.l || currentVariant?.n || currentAct?.n || ""}
-            </div>
-          )}
-
-          {/* Intervinientes */}
-          {activeSvc && (
-            <div className="card" style={{ overflow: "hidden" }}>
-              <button className="collapse-btn" onClick={() => setIntervOpen(!intervOpen)}>
+      {/* Ficha de operación */}
+      {activeSvc && (
+        <div className="full-section">
+          <div className="card" style={{ padding: "16px 18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#78716c", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Ficha de la operación</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 9, color: "#a8a29e", transition: "transform 0.15s", transform: intervOpen ? "rotate(90deg)" : "rotate(0)", display: "inline-block" }}>▶</span>
-                  <span className="collapse-title">Intervinientes</span>
-                  {intervinientes.length > 0 && <span className="collapse-badge" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a" }}>{intervinientes.length}</span>}
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1917", lineHeight: 1.3 }}>{displayName}</div>
+                  <span style={{
+                    padding: "3px 10px", borderRadius: 100, fontSize: 10, fontWeight: 600,
+                    background: estado === "Autorizada" ? "rgba(5,150,105,0.1)" : estado === "Sin Factura" ? "rgba(168,162,158,0.15)" : "rgba(59,130,246,0.1)",
+                    color: estado === "Autorizada" ? "#059669" : estado === "Sin Factura" ? "#78716c" : "#3b82f6",
+                  }}>{estado}</span>
                 </div>
-                {intervinientes.length > 0 && <span style={{ fontSize: 11, color: "#78716c" }}>{intervinientes.length} persona{intervinientes.length !== 1 ? "s" : ""}</span>}
-              </button>
-              {intervOpen && (
-                <div style={{ padding: "0 16px 14px", borderTop: "1px solid #e7e5e4" }}>
-                  {intervinientes.length > 0 && (
-                    <div style={{ overflowX: "auto", marginTop: 10 }}>
-                      <table className="interv-table">
-                        <thead>
-                          <tr>
-                            <th>Tipo</th>
-                            <th>DNI/NIF</th>
-                            <th>Nombre</th>
-                            <th>Apellidos</th>
-                            <th style={{ textAlign: "center" }}>NR</th>
-                            <th></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {intervinientes.map(iv => (
-                            <tr key={iv.id}>
-                              <td style={{ minWidth: 130 }}>
-                                <select className="interv-sel" value={iv.tipo} onChange={e => updateInterviniente(iv.id, "tipo", e.target.value)}>
-                                  {TIPOS_INTERVINIENTE.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                              </td>
-                              <td style={{ minWidth: 90 }}>
-                                <input className="interv-inp" value={iv.dni} onChange={e => updateInterviniente(iv.id, "dni", e.target.value)} placeholder="12345678A" />
-                              </td>
-                              <td style={{ minWidth: 100 }}>
-                                <input className="interv-inp" value={iv.nombre} onChange={e => updateInterviniente(iv.id, "nombre", e.target.value)} placeholder="Nombre" />
-                              </td>
-                              <td style={{ minWidth: 130 }}>
-                                <input className="interv-inp" value={iv.apellidos} onChange={e => updateInterviniente(iv.id, "apellidos", e.target.value)} placeholder="Apellidos" />
-                              </td>
-                              <td style={{ width: 30, textAlign: "center" }}>
-                                <input type="checkbox" checked={iv.nr} onChange={() => updateInterviniente(iv.id, "nr", !iv.nr)} style={{ accentColor: "#92702a", width: 13, height: 13, cursor: "pointer" }} />
-                              </td>
-                              <td style={{ width: 28 }}>
-                                <button className="btn-remove" onClick={() => removeInterviniente(iv.id)} title="Eliminar">&times;</button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  <button className="btn-add-interv" onClick={addInterviniente}>+ Añadir interviniente</button>
-                </div>
-              )}
+              </div>
+              <span className="badge-tipo" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a", border: "1px solid rgba(146,112,42,0.2)" }}>
+                {getTipoLabel(tipoCalculo)}
+              </span>
             </div>
-          )}
+            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>N\u00ba Protocolo</label>
+                <input className="inp inp-sm" value={nProtocolo} onChange={e => setNProtocolo(e.target.value)} placeholder="Ej: 69958" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Estado</label>
+                <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11, width: "100%" }} value={estado} onChange={e => setEstado(e.target.value)}>
+                  <option value="Prevista">Prevista</option>
+                  <option value="Autorizada">Autorizada</option>
+                  <option value="Sin Factura">Sin Factura</option>
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Valor ref. catastral</label>
+                <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11 }} value={valorRefCatastral} onChange={e => setValorRefCatastral(e.target.value)}>
+                  <option value="">No consta</option>
+                  <option value="superior">Consta superior</option>
+                  <option value="inferior">Consta inferior</option>
+                </select>
+              </div>
+            </div>
+            {valorRefCatastral === "superior" && (
+              <div style={{ marginBottom: 8, padding: "6px 10px", background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: 6, fontSize: 11, color: "#a16207" }}>
+                El valor de referencia catastral es superior a la cuantía declarada
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "5px 16px", fontSize: 11.5, color: "#78716c" }}>
+              <span>SIGNO: <b style={{ color: "#44403c" }}>{currentAct?.id}</b></span>
+              {tipoCalculo === "cuantia" && activeSvc.r > 0 && <span>Reducción: <b style={{ color: "#92702a" }}>{(activeSvc.r * 100).toFixed(2)}%</b></span>}
+              {tipoCalculo === "cuantia" && activeSvc.r > 0 && <span>Red. total: <b style={{ color: "#92702a" }}>{((1 - (1 - activeSvc.r) * 0.95) * 100).toFixed(2)}%</b></span>}
+              <span>IVA: <b style={{ color: "#44403c" }}>{activeSvc.iv ? "Sí" : "No"}</b></span>
+              <span>M. pago: <b style={{ color: activeSvc.mp === "Si" ? "#92702a" : "#44403c" }}>{activeSvc.mp === "Si" ? "Obligatorio" : activeSvc.mp === "Op" ? "Opcional" : "No"}</b></span>
+              {activeSvc.cl && <span>Clave reg.: <b style={{ color: "#44403c" }}>{activeSvc.cl}</b></span>}
+              {activeSvc.f > 0 && tipoCalculo !== "cuantia" && <span>Tarifa fija: <b style={{ color: "#92702a" }}>{fmt(activeSvc.f)} {"\u20ac"}</b></span>}
+            </div>
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={ley11_2023} onChange={() => setLey11_2023(!ley11_2023)} style={{ accentColor: "#92702a", width: 14, height: 14, cursor: "pointer" }} />
+              <span style={{ fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>Ley 11/2023</span>
+              {ley11_2023 && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 500, background: "rgba(124,58,237,0.08)", padding: "2px 8px", borderRadius: 4 }}>Placeholder — sin impacto en cálculo</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Intervinientes */}
+      {activeSvc && (
+        <div className="full-section">
+          <div className="card" style={{ overflow: "hidden" }}>
+            <button className="collapse-btn" onClick={() => setIntervOpen(!intervOpen)}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 9, color: "#a8a29e", transition: "transform 0.15s", transform: intervOpen ? "rotate(90deg)" : "rotate(0)", display: "inline-block" }}>▶</span>
+                <span className="collapse-title">Intervinientes</span>
+                {intervinientes.length > 0 && <span className="collapse-badge" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a" }}>{intervinientes.length}</span>}
+              </div>
+              {intervinientes.length > 0 && <span style={{ fontSize: 11, color: "#78716c" }}>{intervinientes.length} persona{intervinientes.length !== 1 ? "s" : ""}</span>}
+            </button>
+            {intervOpen && (
+              <div style={{ padding: "0 16px 14px", borderTop: "1px solid #e7e5e4" }}>
+                {intervinientes.length > 0 && (
+                  <div style={{ overflowX: "auto", marginTop: 10 }}>
+                    <table className="interv-table">
+                      <thead><tr><th>Tipo</th><th>DNI/NIF</th><th>Nombre</th><th>Apellidos</th><th style={{ textAlign: "center" }}>NR</th><th></th></tr></thead>
+                      <tbody>
+                        {intervinientes.map(iv => (
+                          <tr key={iv.id}>
+                            <td style={{ minWidth: 130 }}><select className="interv-sel" value={iv.tipo} onChange={e => updateInterviniente(iv.id, "tipo", e.target.value)}>{TIPOS_INTERVINIENTE.map(t => <option key={t} value={t}>{t}</option>)}</select></td>
+                            <td style={{ minWidth: 90 }}><input className="interv-inp" value={iv.dni} onChange={e => updateInterviniente(iv.id, "dni", e.target.value)} placeholder="12345678A" /></td>
+                            <td style={{ minWidth: 100 }}><input className="interv-inp" value={iv.nombre} onChange={e => updateInterviniente(iv.id, "nombre", e.target.value)} placeholder="Nombre" /></td>
+                            <td style={{ minWidth: 130 }}><input className="interv-inp" value={iv.apellidos} onChange={e => updateInterviniente(iv.id, "apellidos", e.target.value)} placeholder="Apellidos" /></td>
+                            <td style={{ width: 30, textAlign: "center" }}><input type="checkbox" checked={iv.nr} onChange={() => updateInterviniente(iv.id, "nr", !iv.nr)} style={{ accentColor: "#92702a", width: 13, height: 13, cursor: "pointer" }} /></td>
+                            <td style={{ width: 28 }}><button className="btn-remove" onClick={() => removeInterviniente(iv.id)} title="Eliminar">&times;</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <button className="btn-add-interv" onClick={addInterviniente}>+ A\u00f1adir interviniente</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ 2-COLUMN LAYOUT (sections 6-9) ═══ */}
+      <div className="layout">
+        <div className="col-left">
 
           {/* Datos — folios y copias */}
           {activeSvc && (
@@ -1239,32 +1263,12 @@ export default function App() {
 
               <div className="sep" style={{ margin: "12px 0" }} />
 
-              {/* Descuento + Valor ref catastral + Ley 11/2023 */}
+              {/* Descuento */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
                 <div>
                   <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Descuento (%)</label>
                   <input type="number" min="0" max="100" step="0.5" className="inp inp-sm" value={inputs.descuento} onChange={e => setInput("descuento", e.target.value)} />
                 </div>
-                <div>
-                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Valor ref. catastral</label>
-                  <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11 }} value={valorRefCatastral} onChange={e => setValorRefCatastral(e.target.value)}>
-                    <option value="">No consta</option>
-                    <option value="superior">Consta superior</option>
-                    <option value="inferior">Consta inferior</option>
-                  </select>
-                </div>
-              </div>
-              {valorRefCatastral === "superior" && (
-                <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: 6, fontSize: 11, color: "#a16207" }}>
-                  El valor de referencia catastral es superior a la cuantía declarada
-                </div>
-              )}
-
-              {/* Ley 11/2023 */}
-              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="checkbox" checked={ley11_2023} onChange={() => setLey11_2023(!ley11_2023)} style={{ accentColor: "#92702a", width: 14, height: 14, cursor: "pointer" }} />
-                <span style={{ fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>Ley 11/2023</span>
-                {ley11_2023 && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 500, background: "rgba(124,58,237,0.08)", padding: "2px 8px", borderRadius: 4 }}>Placeholder — sin impacto en cálculo</span>}
               </div>
             </div>
           )}
@@ -1283,32 +1287,49 @@ export default function App() {
               {arancOpen && (
                 <div style={{ padding: "0 16px 14px", borderTop: "1px solid #e7e5e4" }}>
                   <CkSection title="Nº 1 — Documentos adicionales">
-                    {DOCS_ADICIONALES.map(d => <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={d.coste}
-                      detail={aranc[d.id]?.checked ? `Tarifa fija: ${fmt(d.coste)}\u20ac` : null}
-                      onRemove={aranc[d.id]?.checked ? () => toggleAranc(d.id) : null} />)}
+                    {DOCS_ADICIONALES.map(d => {
+                      const c = aranc[d.id]?.coste ?? d.coste;
+                      const mod = aranc[d.id]?.modificado;
+                      return <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={c}
+                        detail={aranc[d.id]?.checked ? `Tarifa fija: ${fmt(c)}\u20ac` : null}
+                        onRemove={aranc[d.id]?.checked ? () => toggleAranc(d.id) : null}
+                        extra={aranc[d.id]?.checked && <EditableCoste value={c} modificado={mod} onChange={v => setArancCoste(d.id, v)} onReset={() => resetArancCoste(d.id)} />} />;
+                    })}
                   </CkSection>
                   <CkSection title="Nº 5 — Testimonios">
                     {TESTIMONIOS.map(t => {
                       const f = aranc[t.id]?.folios ?? t.folios;
-                      const total = calcTestimonio(t, f);
+                      const cb = aranc[t.id]?.costeBase ?? TARIFAS.testimonio_base;
+                      const total = calcTestimonio(t, f, cb);
+                      const mod = aranc[t.id]?.modificado;
                       let formula = null;
                       if (aranc[t.id]?.checked) {
                         if (t.especial) {
                           formula = f > 0 ? `${f} fol. \u00d7 ${fmt(TARIFAS.copia_autorizada_folio)}\u20ac = ${fmt(total)}\u20ac` : `0,00\u20ac`;
                         } else {
-                          formula = f > 0 ? `${fmt(TARIFAS.testimonio_base)}\u20ac + ${f} fol. \u00d7 ${fmt(TARIFAS.copia_simple_folio)}\u20ac = ${fmt(total)}\u20ac` : `${fmt(TARIFAS.testimonio_base)}\u20ac = ${fmt(total)}\u20ac`;
+                          formula = f > 0 ? `${fmt(cb)}\u20ac + ${f} fol. \u00d7 ${fmt(TARIFAS.copia_simple_folio)}\u20ac = ${fmt(total)}\u20ac` : `${fmt(cb)}\u20ac = ${fmt(total)}\u20ac`;
                         }
                       }
                       return <CkRow key={t.id} checked={aranc[t.id]?.checked} onChange={() => toggleAranc(t.id)} label={t.n} coste={total}
                         detail={formula}
                         onRemove={aranc[t.id]?.checked ? () => toggleAranc(t.id) : null}
-                        extra={aranc[t.id]?.checked && <FolInput value={f} onChange={e => setArancFolios(t.id, e.target.value)} />} />;
+                        extra={aranc[t.id]?.checked && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                            {!t.especial && <EditableCoste value={cb} modificado={mod} onChange={v => setArancCosteBase(t.id, v)} onReset={() => resetArancCoste(t.id)} label="base" />}
+                            <FolInput value={f} onChange={e => setArancFolios(t.id, e.target.value)} />
+                          </div>
+                        )} />;
                     })}
                   </CkSection>
                   <CkSection title="Nº 6 — Diligencias">
-                    {DILIGENCIAS.map(d => <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={d.coste}
-                      detail={aranc[d.id]?.checked ? `Tarifa fija: ${fmt(d.coste)}\u20ac` : null}
-                      onRemove={aranc[d.id]?.checked ? () => toggleAranc(d.id) : null} />)}
+                    {DILIGENCIAS.map(d => {
+                      const c = aranc[d.id]?.coste ?? d.coste;
+                      const mod = aranc[d.id]?.modificado;
+                      return <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={c}
+                        detail={aranc[d.id]?.checked ? `Tarifa fija: ${fmt(c)}\u20ac` : null}
+                        onRemove={aranc[d.id]?.checked ? () => toggleAranc(d.id) : null}
+                        extra={aranc[d.id]?.checked && <EditableCoste value={c} modificado={mod} onChange={v => setArancCoste(d.id, v)} onReset={() => resetArancCoste(d.id)} />} />;
+                    })}
                   </CkSection>
                   <CkSection title="Nº 7 — Matriz">
                     <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>Folios: <b style={{ color: "#44403c" }}>{inputs.folios_matriz}</b> — primeros 4 gratis, luego 6,01 {"\u20ac"}/folio</p>
@@ -1364,9 +1385,10 @@ export default function App() {
                     {GASTOS_EXTERNOS.map(g => {
                       const ch = gsState.gastos[g.id]?.checked;
                       const c = gsState.gastos[g.id]?.coste ?? g.coste;
+                      const mod = gsState.gastos[g.id]?.modificado;
                       return <CkRow key={g.id} checked={ch} onChange={() => toggleGasto(g.id)} label={g.n} coste={c} accent="indigo"
                         onRemove={ch ? () => toggleGasto(g.id) : null}
-                        extra={g.editable && ch && <CostInput value={c} onChange={e => setGastoCoste(g.id, e.target.value)} />} />;
+                        extra={ch && <EditableCoste value={c} modificado={mod} onChange={v => setGastoCoste(g.id, v)} onReset={() => resetGastoCoste(g.id)} />} />;
                     })}
                     {customGastos.map(c => (
                       <div key={c.id} className="ck-row" style={{ opacity: 1 }}>
@@ -1390,9 +1412,10 @@ export default function App() {
                     {SUPLIDOS_CAT.map(s => {
                       const ch = gsState.suplidos[s.id]?.checked;
                       const c = gsState.suplidos[s.id]?.coste ?? s.coste;
+                      const mod = gsState.suplidos[s.id]?.modificado;
                       return <CkRow key={s.id} checked={ch} onChange={() => toggleSuplido(s.id)} label={s.n} coste={c} accent="indigo"
                         onRemove={ch ? () => toggleSuplido(s.id) : null}
-                        extra={s.editable && ch && <CostInput value={c} onChange={e => setSuplidoCoste(s.id, e.target.value)} />} />;
+                        extra={ch && <EditableCoste value={c} modificado={mod} onChange={v => setSuplidoCoste(s.id, v)} onReset={() => resetSuplidoCoste(s.id)} />} />;
                     })}
                     {customSuplidos.map(c => (
                       <div key={c.id} className="ck-row" style={{ opacity: 1 }}>
@@ -1421,6 +1444,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                  <button className="btn-add-interv" style={{ marginTop: 8, width: "100%", justifyContent: "center", borderStyle: "solid", color: "#a8a29e", fontSize: 10 }} onClick={restablecerTodosGastos}>{"\u21BB"} Restablecer todos los gastos</button>
                 </div>
               )}
             </div>
@@ -1564,11 +1588,14 @@ function FolInput({ value, onChange }) {
   );
 }
 
-function CostInput({ value, onChange }) {
+function EditableCoste({ value, modificado, onChange, onReset, label }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-      <input type="number" min="0" step="0.01" value={value} onChange={onChange} className="inp inp-sm" style={{ width: 65, padding: "2px 5px", textAlign: "right", borderRadius: 5, fontSize: 11 }} />
+      {label && <span style={{ fontSize: 8, color: "#a8a29e" }}>{label}</span>}
+      <input type="number" min="0" step="0.01" value={value} onChange={e => onChange(e.target.value)} className="inp inp-sm"
+        style={{ width: 60, padding: "2px 5px", textAlign: "right", borderRadius: 5, fontSize: 11, borderColor: modificado ? "#c9a55a" : undefined }} />
       <span style={{ fontSize: 10, color: "#a8a29e" }}>{"\u20ac"}</span>
+      {modificado && <button onClick={onReset} style={{ background: "none", border: "none", cursor: "pointer", color: "#c9a55a", fontSize: 12, padding: 0, lineHeight: 1 }} title="Restablecer">{"\u21BB"}</button>}
     </div>
   );
 }
