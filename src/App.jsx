@@ -711,9 +711,17 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [inputs, setInputs] = useState({
     cuantia: "",
+    base_minutable: "",
     folios_matriz: "4", copias_aut: "1", folios_aut: "4",
     copias_sim: "1", folios_sim: "4",
+    copias_elec_aut: "0", folios_elec_aut: "0",
+    copias_elec_sim: "0", folios_elec_sim: "0",
+    descuento: "0",
   });
+  const [baseManual, setBaseManual] = useState(false);
+  const [matrizElectronica, setMatrizElectronica] = useState(false);
+  const [valorRefCatastral, setValorRefCatastral] = useState("");
+  const [ley11_2023, setLey11_2023] = useState(false);
   const [aranc, setAranc] = useState(buildInitialAranc);
   const [arancOpen, setArancOpen] = useState(false);
   const [gsState, setGsState] = useState(() => buildInitialGastosSuplidos());
@@ -721,6 +729,28 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [intervinientes, setIntervinientes] = useState([]);
   const [intervOpen, setIntervOpen] = useState(false);
+  const [nProtocolo, setNProtocolo] = useState("");
+  const [estado, setEstado] = useState("Prevista");
+  const [customAranc, setCustomAranc] = useState([]);
+  const [customGastos, setCustomGastos] = useState([]);
+  const [customSuplidos, setCustomSuplidos] = useState([]);
+  const [addingTo, setAddingTo] = useState(null);
+  const [newItem, setNewItem] = useState({ nombre: "", coste: "" });
+
+  const addCustomItem = useCallback((section) => {
+    if (!newItem.nombre.trim()) return;
+    const item = { id: Date.now(), nombre: newItem.nombre.trim(), coste: parseFloat(newItem.coste) || 0 };
+    if (section === "aranc") setCustomAranc(p => [...p, item]);
+    else if (section === "gastos") setCustomGastos(p => [...p, item]);
+    else if (section === "suplidos") setCustomSuplidos(p => [...p, item]);
+    setAddingTo(null);
+    setNewItem({ nombre: "", coste: "" });
+  }, [newItem]);
+  const removeCustomItem = useCallback((section, id) => {
+    if (section === "aranc") setCustomAranc(p => p.filter(i => i.id !== id));
+    else if (section === "gastos") setCustomGastos(p => p.filter(i => i.id !== id));
+    else if (section === "suplidos") setCustomSuplidos(p => p.filter(i => i.id !== id));
+  }, []);
 
   const addInterviniente = useCallback(() => {
     setIntervinientes(p => [...p, { id: Date.now(), tipo: "Poderdante", dni: "", nombre: "", apellidos: "", nr: false }]);
@@ -729,7 +759,16 @@ export default function App() {
   const removeInterviniente = useCallback((id) => setIntervinientes(p => p.filter(i => i.id !== id)), []);
   const updateInterviniente = useCallback((id, field, value) => setIntervinientes(p => p.map(i => i.id === id ? { ...i, [field]: value } : i)), []);
 
-  const setInput = useCallback((k, v) => setInputs(p => ({ ...p, [k]: v })), []);
+  const setInput = useCallback((k, v) => {
+    setInputs(p => {
+      const next = { ...p, [k]: v };
+      // Auto-sync base_minutable from cuantía unless manually edited
+      if (k === "cuantia" && !baseManual) next.base_minutable = v;
+      return next;
+    });
+    if (k === "base_minutable") setBaseManual(true);
+  }, [baseManual]);
+  const resyncBase = useCallback(() => { setBaseManual(false); setInputs(p => ({ ...p, base_minutable: p.cuantia })); }, []);
   const toggleAranc = useCallback((id) => setAranc(p => ({ ...p, [id]: { ...p[id], checked: !p[id].checked } })), []);
   const setArancFolios = useCallback((id, folios) => setAranc(p => ({ ...p, [id]: { ...p[id], folios: parseInt(folios) || 0 } })), []);
   const toggleGasto = useCallback((id) => setGsState(p => ({ ...p, gastos: { ...p.gastos, [id]: { ...p.gastos[id], checked: !p.gastos[id].checked } } })), []);
@@ -779,30 +818,38 @@ export default function App() {
     DOCS_ADICIONALES.forEach(d => { if (aranc[d.id]?.checked) { suma += d.coste; count++; } });
     TESTIMONIOS.forEach(t => { if (aranc[t.id]?.checked) { suma += calcTestimonio(t, aranc[t.id].folios || 0); count++; } });
     DILIGENCIAS.forEach(d => { if (aranc[d.id]?.checked) { suma += d.coste; count++; } });
+    customAranc.forEach(c => { suma += c.coste; count++; });
     return { suma, count };
-  }, [aranc]);
+  }, [aranc, customAranc]);
 
   const gsTotals = useMemo(() => {
     let gastos = 0, gc = 0;
     GASTOS_EXTERNOS.forEach(g => { if (gsState.gastos[g.id]?.checked) { gastos += gsState.gastos[g.id].coste; gc++; } });
+    customGastos.forEach(c => { gastos += c.coste; gc++; });
     let suplidos = 0, sc = 0;
     SUPLIDOS_CAT.forEach(s => { if (gsState.suplidos[s.id]?.checked) { suplidos += gsState.suplidos[s.id].coste; sc++; } });
+    customSuplidos.forEach(c => { suplidos += c.coste; sc++; });
     return { gastos, suplidos, gastosCount: gc, suplidosCount: sc, total: gastos + suplidos, count: gc + sc };
-  }, [gsState]);
+  }, [gsState, customGastos, customSuplidos]);
 
   const calc = useMemo(() => {
     if (!activeSvc) return null;
     const tipo = getTipoCalculo(activeSvc);
-    const cuantia = parseFloat(inputs.cuantia?.replace(/\./g, "").replace(",", ".")) || 0;
+    const baseMin = parseFloat(inputs.base_minutable?.replace(/\./g, "").replace(",", ".")) || 0;
     const folMat = parseInt(inputs.folios_matriz) || 0;
     const copAut = parseInt(inputs.copias_aut) || 0;
     const folAut = parseInt(inputs.folios_aut) || 0;
     const copSim = parseInt(inputs.copias_sim) || 0;
     const folSim = parseInt(inputs.folios_sim) || 0;
-    const r = { honorarios: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
+    const copElecAut = parseInt(inputs.copias_elec_aut) || 0;
+    const folElecAut = parseInt(inputs.folios_elec_aut) || 0;
+    const copElecSim = parseInt(inputs.copias_elec_sim) || 0;
+    const folElecSim = parseInt(inputs.folios_elec_sim) || 0;
+    const descPct = Math.min(100, Math.max(0, parseFloat(inputs.descuento) || 0));
+    const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
     switch (tipo) {
       case "cuantia":
-        r.honorarios = calcEscala(cuantia);
+        r.honorarios = calcEscala(baseMin);
         r.reduccion_pct = activeSvc.r * 100;
         r.reduccion_total_pct = (1 - (1 - activeSvc.r) * 0.95) * 100;
         r.honorarios_netos = r.honorarios * (1 - activeSvc.r) * 0.95;
@@ -814,19 +861,36 @@ export default function App() {
     }
     r.copias_aut = calcCopiaAut(folAut, copAut);
     r.copias_sim = calcCopiaSim(folSim, copSim);
-    r.folios_matriz = calcFoliosMatriz(folMat);
+    r.copias_elec_aut = calcCopiaAut(folElecAut, copElecAut);
+    r.copias_elec_sim = calcCopiaSim(folElecSim, copElecSim);
+    if (matrizElectronica && folMat > 4) {
+      r.folios_matriz = (folMat - 4) * 2 * TARIFAS.copia_autorizada_folio;
+    } else {
+      r.folios_matriz = calcFoliosMatriz(folMat);
+    }
     r.arancelarios_adicionales = arancTotals.suma;
-    r.derechos = r.honorarios_netos + r.copias_aut + r.copias_sim + r.folios_matriz + r.arancelarios_adicionales;
+    // Honorario bruto referencia (sin reducción) for display
+    r.honorarios_brutos_ref = r.honorarios + r.copias_aut + r.copias_sim + r.copias_elec_aut + r.copias_elec_sim + r.folios_matriz + r.arancelarios_adicionales;
+    r.derechos = r.honorarios_netos + r.copias_aut + r.copias_sim + r.copias_elec_aut + r.copias_elec_sim + r.folios_matriz + r.arancelarios_adicionales;
+    // Descuento applied to derechos
+    r.descuento_importe = r.derechos * descPct / 100;
+    const derechosConDescuento = r.derechos - r.descuento_importe;
     r.gastos = gsTotals.gastos;
     r.suplidos = gsTotals.suplidos;
-    r.base_iva = r.derechos + r.gastos;
-    r.iva = r.aplicaIva ? r.base_iva * TARIFAS.iva / 100 : 0;
+    // Derechos exentos de IVA: when iv=false, derechos don't enter IVA base
+    if (!r.aplicaIva) {
+      r.derechos_exentos = derechosConDescuento;
+      r.base_iva = r.gastos;
+    } else {
+      r.base_iva = derechosConDescuento + r.gastos;
+    }
+    r.iva = r.base_iva * TARIFAS.iva / 100;
     r.base_irpf = r.honorarios_netos;
     r.irpf = r.base_irpf * TARIFAS.irpf / 100;
-    r.total = r.derechos + r.gastos + r.suplidos + r.iva;
+    r.total = derechosConDescuento + r.gastos + r.suplidos + r.iva;
     r.liquido = r.total - r.irpf;
     return r;
-  }, [activeSvc, inputs, arancTotals, gsTotals]);
+  }, [activeSvc, inputs, arancTotals, gsTotals, matrizElectronica]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -848,17 +912,24 @@ export default function App() {
 
   const handleLimpiarTodo = useCallback(() => {
     setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
-    setInputs({ cuantia: "", folios_matriz: "4", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4" });
+    setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
+    setBaseManual(false); setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
     setAranc(buildInitialAranc()); setArancOpen(false);
     setGsState(buildInitialGastosSuplidos()); setGsOpen(false);
     setIntervinientes([]); setIntervOpen(false);
+    setNProtocolo(""); setEstado("Prevista");
+    setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
+    setAddingTo(null); setNewItem({ nombre: "", coste: "" });
   }, []);
 
   const handleCopiarDesglose = useCallback(async () => {
     if (!calc || !activeSvc) return;
     const L = [];
     L.push(`DESGLOSE - ${displayName}`);
+    if (nProtocolo) L.push(`N\u00ba Protocolo: ${nProtocolo}`);
+    L.push(`Estado: ${estado}`);
     L.push("");
+    if (tipoCalculo === "cuantia" && calc.reduccion_total_pct > 0) L.push(`Sin reducci\u00f3n (ref.):        ${fmt(calc.honorarios_brutos_ref)} \u20ac`);
     if (tipoCalculo === "cuantia") {
       L.push(`Honorarios brutos (N\u00ba 2):  ${fmt(calc.honorarios)} \u20ac`);
       if (calc.reduccion_total_pct > 0) L.push(`Reducci\u00f3n (-${calc.reduccion_total_pct.toFixed(2)}%): ${fmt(-(calc.honorarios - calc.honorarios_netos))} \u20ac`);
@@ -869,22 +940,38 @@ export default function App() {
     L.push(`Honorarios netos:            ${fmt(calc.honorarios_netos)} \u20ac`);
     if (calc.copias_aut > 0) L.push(`Copias autorizadas:          ${fmt(calc.copias_aut)} \u20ac`);
     if (calc.copias_sim > 0) L.push(`Copias simples:              ${fmt(calc.copias_sim)} \u20ac`);
-    if (calc.folios_matriz > 0) L.push(`Folios de matriz:            ${fmt(calc.folios_matriz)} \u20ac`);
+    if (calc.copias_elec_aut > 0) L.push(`Copias elec. autorizadas:    ${fmt(calc.copias_elec_aut)} \u20ac`);
+    if (calc.copias_elec_sim > 0) L.push(`Copias elec. simples:        ${fmt(calc.copias_elec_sim)} \u20ac`);
+    if (calc.folios_matriz > 0) L.push(`Folios de matriz${matrizElectronica ? " (elec.)" : ""}:${matrizElectronica ? "    " : "            "}${fmt(calc.folios_matriz)} \u20ac`);
     if (calc.arancelarios_adicionales > 0) L.push(`Arancelarios adicionales:    ${fmt(calc.arancelarios_adicionales)} \u20ac`);
+    customAranc.forEach(c => L.push(`  ${c.nombre}: ${fmt(c.coste)} \u20ac`));
     L.push("---");
     L.push(`DERECHOS:                    ${fmt(calc.derechos)} \u20ac`);
-    if (calc.gastos > 0) L.push(`Gastos:                      ${fmt(calc.gastos)} \u20ac`);
-    if (calc.suplidos > 0) L.push(`Suplidos:                    ${fmt(calc.suplidos)} \u20ac`);
+    if (calc.descuento_importe > 0) L.push(`Descuento (${calc.descuento_pct}%):            -${fmt(calc.descuento_importe)} \u20ac`);
+    if (calc.gastos > 0) {
+      L.push(`Gastos:                      ${fmt(calc.gastos)} \u20ac`);
+      customGastos.forEach(c => L.push(`  ${c.nombre}: ${fmt(c.coste)} \u20ac`));
+    }
+    if (calc.suplidos > 0) {
+      L.push(`Suplidos:                    ${fmt(calc.suplidos)} \u20ac`);
+      customSuplidos.forEach(c => L.push(`  ${c.nombre}: ${fmt(c.coste)} \u20ac`));
+    }
     L.push("---");
+    if (calc.derechos_exentos > 0) L.push(`Der. exentos IVA:            ${fmt(calc.derechos_exentos)} \u20ac`);
     L.push(`Base IVA:                    ${fmt(calc.base_iva)} \u20ac`);
-    L.push(`IVA (${TARIFAS.iva}%):                   ${calc.aplicaIva ? fmt(calc.iva) : "0,00"} \u20ac`);
+    L.push(`IVA (${TARIFAS.iva}%):                   ${fmt(calc.iva)} \u20ac`);
     L.push("===");
     L.push(`TOTAL:                       ${fmt(calc.total)} \u20ac`);
     L.push("");
     L.push(`Retenci\u00f3n IRPF (${TARIFAS.irpf}%):       -${fmt(calc.irpf)} \u20ac`);
     L.push(`L\u00edquido a percibir:          ${fmt(calc.liquido)} \u20ac`);
+    if (intervinientes.length > 0) {
+      L.push("");
+      L.push("INTERVINIENTES:");
+      intervinientes.forEach(iv => L.push(`  ${iv.tipo}: ${iv.nombre} ${iv.apellidos}${iv.dni ? ` (${iv.dni})` : ""}${iv.nr ? " [NR]" : ""}`));
+    }
     try { await navigator.clipboard.writeText(L.join("\n")); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
-  }, [calc, activeSvc, displayName, tipoCalculo]);
+  }, [calc, activeSvc, displayName, tipoCalculo, matrizElectronica, nProtocolo, estado, customAranc, customGastos, customSuplidos, intervinientes]);
 
   // ═══════════════════════════════════════════════════════════
   // RENDER
@@ -934,10 +1021,19 @@ export default function App() {
               </div>
             )}
             {tipoCalculo === "cuantia" && (
-              <div className="header-field">
-                <span className="lbl">Cuantía ({"\u20ac"})</span>
-                <input className="inp inp-mono" value={inputs.cuantia} onChange={e => setInput("cuantia", e.target.value)} placeholder="200.000" style={{ fontWeight: 600 }} />
-              </div>
+              <>
+                <div className="header-field">
+                  <span className="lbl">Cuantía ({"\u20ac"})</span>
+                  <input className="inp inp-mono" value={inputs.cuantia} onChange={e => setInput("cuantia", e.target.value)} placeholder="200.000" style={{ fontWeight: 600 }} />
+                </div>
+                <div className="header-field">
+                  <span className="lbl" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    Base minutable ({"\u20ac"})
+                    {baseManual && <button onClick={resyncBase} style={{ background: "rgba(251,191,36,0.3)", border: "none", borderRadius: 4, color: "#fbbf24", fontSize: 8, padding: "1px 5px", cursor: "pointer", fontWeight: 700 }} title="Re-sincronizar con cuantía">{"\u21BB"}</button>}
+                  </span>
+                  <input className="inp inp-mono" value={inputs.base_minutable} onChange={e => setInput("base_minutable", e.target.value)} placeholder="200.000" style={{ fontWeight: 600, borderColor: baseManual ? "rgba(251,191,36,0.5)" : undefined }} />
+                </div>
+              </>
             )}
           </div>
 
@@ -972,12 +1068,34 @@ export default function App() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 600, color: "#78716c", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Ficha de la operación</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1917", lineHeight: 1.3 }}>{displayName}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1917", lineHeight: 1.3 }}>{displayName}</div>
+                    <span style={{
+                      padding: "3px 10px", borderRadius: 100, fontSize: 10, fontWeight: 600,
+                      background: estado === "Autorizada" ? "rgba(5,150,105,0.1)" : estado === "Sin Factura" ? "rgba(168,162,158,0.15)" : "rgba(59,130,246,0.1)",
+                      color: estado === "Autorizada" ? "#059669" : estado === "Sin Factura" ? "#78716c" : "#3b82f6",
+                    }}>{estado}</span>
+                  </div>
                 </div>
-                {/* Badge estilo Notinn */}
                 <span className="badge-tipo" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a", border: "1px solid rgba(146,112,42,0.2)" }}>
                   {getTipoLabel(tipoCalculo)}
                 </span>
+              </div>
+
+              {/* Protocolo + Estado */}
+              <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>N\u00ba Protocolo</label>
+                  <input className="inp inp-sm" value={nProtocolo} onChange={e => setNProtocolo(e.target.value)} placeholder="Ej: 69958" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Estado</label>
+                  <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11, width: "100%" }} value={estado} onChange={e => setEstado(e.target.value)}>
+                    <option value="Prevista">Prevista</option>
+                    <option value="Autorizada">Autorizada</option>
+                    <option value="Sin Factura">Sin Factura</option>
+                  </select>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "5px 16px", fontSize: 11.5, color: "#78716c" }}>
@@ -989,6 +1107,25 @@ export default function App() {
                 {activeSvc.cl && <span>Clave reg.: <b style={{ color: "#44403c" }}>{activeSvc.cl}</b></span>}
                 {activeSvc.f > 0 && tipoCalculo !== "cuantia" && <span>Tarifa fija: <b style={{ color: "#92702a" }}>{fmt(activeSvc.f)} {"\u20ac"}</b></span>}
               </div>
+            </div>
+          )}
+
+          {/* Badge de tipo de operación */}
+          {activeSvc && (
+            <div style={{
+              background: "rgba(201,165,90,0.15)",
+              border: "1px solid rgba(201,165,90,0.3)",
+              borderRadius: 8,
+              padding: "12px 28px",
+              fontSize: 14,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              color: "#c9a55a",
+              textTransform: "uppercase",
+              textAlign: "center",
+              margin: "12px 0",
+            }}>
+              {currentVariant?.l || currentVariant?.n || currentAct?.n || ""}
             </div>
           )}
 
@@ -1071,6 +1208,8 @@ export default function App() {
                 <div style={{ padding: "8px 12px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.12)", borderRadius: 8, fontSize: 12, color: "#6366f1", marginBottom: 12 }}>Sin cuantía: <b>{fmt(TARIFAS.doc_sin_cuantia)} {"\u20ac"}</b></div>
               )}
 
+              {/* Copias físicas */}
+              <div style={{ fontSize: 9, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Copias físicas</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
                 {[["folios_matriz","Folios matriz"],["copias_aut","Copias aut."],["folios_aut","Fol./copia aut."],["copias_sim","Copias sim."],["folios_sim","Fol./copia sim."]].map(([k,l]) => (
                   <div key={k}>
@@ -1078,6 +1217,54 @@ export default function App() {
                     <input type="number" min="0" className="inp inp-sm" value={inputs[k]} onChange={e => setInput(k, e.target.value)} />
                   </div>
                 ))}
+              </div>
+
+              {/* Copias electrónicas */}
+              <div style={{ fontSize: 9, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 12, marginBottom: 4 }}>Copias electrónicas</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+                {[["copias_elec_aut","Copias elec. aut."],["folios_elec_aut","Fol./copia elec. aut."],["copias_elec_sim","Copias elec. sim."],["folios_elec_sim","Fol./copia elec. sim."]].map(([k,l]) => (
+                  <div key={k}>
+                    <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{l}</label>
+                    <input type="number" min="0" className="inp inp-sm" value={inputs[k]} onChange={e => setInput(k, e.target.value)} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Matriz electrónica toggle */}
+              <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" checked={matrizElectronica} onChange={() => setMatrizElectronica(!matrizElectronica)} style={{ accentColor: "#92702a", width: 14, height: 14, cursor: "pointer" }} />
+                <span style={{ fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>Matriz electrónica</span>
+                {matrizElectronica && <span style={{ fontSize: 10, color: "#d97706", fontWeight: 500, background: "rgba(217,119,6,0.08)", padding: "2px 8px", borderRadius: 4 }}>Verificar tarifa con Aroa</span>}
+              </div>
+
+              <div className="sep" style={{ margin: "12px 0" }} />
+
+              {/* Descuento + Valor ref catastral + Ley 11/2023 */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Descuento (%)</label>
+                  <input type="number" min="0" max="100" step="0.5" className="inp inp-sm" value={inputs.descuento} onChange={e => setInput("descuento", e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Valor ref. catastral</label>
+                  <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11 }} value={valorRefCatastral} onChange={e => setValorRefCatastral(e.target.value)}>
+                    <option value="">No consta</option>
+                    <option value="superior">Consta superior</option>
+                    <option value="inferior">Consta inferior</option>
+                  </select>
+                </div>
+              </div>
+              {valorRefCatastral === "superior" && (
+                <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: 6, fontSize: 11, color: "#a16207" }}>
+                  El valor de referencia catastral es superior a la cuantía declarada
+                </div>
+              )}
+
+              {/* Ley 11/2023 */}
+              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" checked={ley11_2023} onChange={() => setLey11_2023(!ley11_2023)} style={{ accentColor: "#92702a", width: 14, height: 14, cursor: "pointer" }} />
+                <span style={{ fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>Ley 11/2023</span>
+                {ley11_2023 && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 500, background: "rgba(124,58,237,0.08)", padding: "2px 8px", borderRadius: 4 }}>Placeholder — sin impacto en cálculo</span>}
               </div>
             </div>
           )}
@@ -1096,21 +1283,59 @@ export default function App() {
               {arancOpen && (
                 <div style={{ padding: "0 16px 14px", borderTop: "1px solid #e7e5e4" }}>
                   <CkSection title="Nº 1 — Documentos adicionales">
-                    {DOCS_ADICIONALES.map(d => <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={d.coste} />)}
+                    {DOCS_ADICIONALES.map(d => <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={d.coste}
+                      detail={aranc[d.id]?.checked ? `Tarifa fija: ${fmt(d.coste)}\u20ac` : null}
+                      onRemove={aranc[d.id]?.checked ? () => toggleAranc(d.id) : null} />)}
                   </CkSection>
                   <CkSection title="Nº 5 — Testimonios">
                     {TESTIMONIOS.map(t => {
                       const f = aranc[t.id]?.folios ?? t.folios;
-                      return <CkRow key={t.id} checked={aranc[t.id]?.checked} onChange={() => toggleAranc(t.id)} label={t.n} coste={calcTestimonio(t, f)}
+                      const total = calcTestimonio(t, f);
+                      let formula = null;
+                      if (aranc[t.id]?.checked) {
+                        if (t.especial) {
+                          formula = f > 0 ? `${f} fol. \u00d7 ${fmt(TARIFAS.copia_autorizada_folio)}\u20ac = ${fmt(total)}\u20ac` : `0,00\u20ac`;
+                        } else {
+                          formula = f > 0 ? `${fmt(TARIFAS.testimonio_base)}\u20ac + ${f} fol. \u00d7 ${fmt(TARIFAS.copia_simple_folio)}\u20ac = ${fmt(total)}\u20ac` : `${fmt(TARIFAS.testimonio_base)}\u20ac = ${fmt(total)}\u20ac`;
+                        }
+                      }
+                      return <CkRow key={t.id} checked={aranc[t.id]?.checked} onChange={() => toggleAranc(t.id)} label={t.n} coste={total}
+                        detail={formula}
+                        onRemove={aranc[t.id]?.checked ? () => toggleAranc(t.id) : null}
                         extra={aranc[t.id]?.checked && <FolInput value={f} onChange={e => setArancFolios(t.id, e.target.value)} />} />;
                     })}
                   </CkSection>
                   <CkSection title="Nº 6 — Diligencias">
-                    {DILIGENCIAS.map(d => <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={d.coste} />)}
+                    {DILIGENCIAS.map(d => <CkRow key={d.id} checked={aranc[d.id]?.checked} onChange={() => toggleAranc(d.id)} label={d.n} coste={d.coste}
+                      detail={aranc[d.id]?.checked ? `Tarifa fija: ${fmt(d.coste)}\u20ac` : null}
+                      onRemove={aranc[d.id]?.checked ? () => toggleAranc(d.id) : null} />)}
                   </CkSection>
                   <CkSection title="Nº 7 — Matriz">
                     <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>Folios: <b style={{ color: "#44403c" }}>{inputs.folios_matriz}</b> — primeros 4 gratis, luego 6,01 {"\u20ac"}/folio</p>
                   </CkSection>
+                  {/* Custom arancelarios */}
+                  {customAranc.length > 0 && (
+                    <CkSection title="Personalizados">
+                      {customAranc.map(c => (
+                        <div key={c.id} className="ck-row" style={{ opacity: 1 }}>
+                          <span style={{ flex: 1, fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>{c.nombre}</span>
+                          <span className="mono" style={{ fontSize: 11, color: "#92702a", minWidth: 55, textAlign: "right", flexShrink: 0 }}>{fmt(c.coste)} {"\u20ac"}</span>
+                          <button className="btn-remove" onClick={() => removeCustomItem("aranc", c.id)} title="Eliminar">&times;</button>
+                        </div>
+                      ))}
+                    </CkSection>
+                  )}
+                  {/* Add concept form */}
+                  {addingTo === "aranc" ? (
+                    <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center" }}>
+                      <input className="inp inp-sm" style={{ flex: 1 }} value={newItem.nombre} onChange={e => setNewItem(p => ({ ...p, nombre: e.target.value }))} placeholder="Nombre del concepto" autoFocus />
+                      <input type="number" className="inp inp-sm" style={{ width: 70 }} value={newItem.coste} onChange={e => setNewItem(p => ({ ...p, coste: e.target.value }))} placeholder="0,00" />
+                      <button className="btn-remove" style={{ color: "#059669", fontSize: 16 }} onClick={() => addCustomItem("aranc")} title="Confirmar">{"\u2713"}</button>
+                      <button className="btn-remove" onClick={() => { setAddingTo(null); setNewItem({ nombre: "", coste: "" }); }} title="Cancelar">&times;</button>
+                    </div>
+                  ) : (
+                    <button className="btn-add-interv" style={{ marginTop: 8 }} onClick={() => { setAddingTo("aranc"); setNewItem({ nombre: "", coste: "" }); }}>+ A\u00f1adir concepto</button>
+                  )}
                   {arancTotals.count > 0 && (
                     <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e7e5e4", display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                       <span style={{ color: "#78716c" }}>{arancTotals.count} concepto{arancTotals.count !== 1 ? "s" : ""}</span>
@@ -1140,16 +1365,52 @@ export default function App() {
                       const ch = gsState.gastos[g.id]?.checked;
                       const c = gsState.gastos[g.id]?.coste ?? g.coste;
                       return <CkRow key={g.id} checked={ch} onChange={() => toggleGasto(g.id)} label={g.n} coste={c} accent="indigo"
+                        onRemove={ch ? () => toggleGasto(g.id) : null}
                         extra={g.editable && ch && <CostInput value={c} onChange={e => setGastoCoste(g.id, e.target.value)} />} />;
                     })}
+                    {customGastos.map(c => (
+                      <div key={c.id} className="ck-row" style={{ opacity: 1 }}>
+                        <span style={{ flex: 1, fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>{c.nombre}</span>
+                        <span className="mono" style={{ fontSize: 11, color: "#6366f1", minWidth: 55, textAlign: "right", flexShrink: 0 }}>{fmt(c.coste)} {"\u20ac"}</span>
+                        <button className="btn-remove" onClick={() => removeCustomItem("gastos", c.id)} title="Eliminar">&times;</button>
+                      </div>
+                    ))}
+                    {addingTo === "gastos" ? (
+                      <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center" }}>
+                        <input className="inp inp-sm" style={{ flex: 1 }} value={newItem.nombre} onChange={e => setNewItem(p => ({ ...p, nombre: e.target.value }))} placeholder="Nombre del gasto" autoFocus />
+                        <input type="number" className="inp inp-sm" style={{ width: 70 }} value={newItem.coste} onChange={e => setNewItem(p => ({ ...p, coste: e.target.value }))} placeholder="0,00" />
+                        <button className="btn-remove" style={{ color: "#059669", fontSize: 16 }} onClick={() => addCustomItem("gastos")} title="Confirmar">{"\u2713"}</button>
+                        <button className="btn-remove" onClick={() => { setAddingTo(null); setNewItem({ nombre: "", coste: "" }); }} title="Cancelar">&times;</button>
+                      </div>
+                    ) : (
+                      <button className="btn-add-interv" style={{ marginTop: 6 }} onClick={() => { setAddingTo("gastos"); setNewItem({ nombre: "", coste: "" }); }}>+ A\u00f1adir gasto</button>
+                    )}
                   </CkSection>
                   <CkSection title="Suplidos" subtitle="sin IVA, sin IRPF">
                     {SUPLIDOS_CAT.map(s => {
                       const ch = gsState.suplidos[s.id]?.checked;
                       const c = gsState.suplidos[s.id]?.coste ?? s.coste;
                       return <CkRow key={s.id} checked={ch} onChange={() => toggleSuplido(s.id)} label={s.n} coste={c} accent="indigo"
+                        onRemove={ch ? () => toggleSuplido(s.id) : null}
                         extra={s.editable && ch && <CostInput value={c} onChange={e => setSuplidoCoste(s.id, e.target.value)} />} />;
                     })}
+                    {customSuplidos.map(c => (
+                      <div key={c.id} className="ck-row" style={{ opacity: 1 }}>
+                        <span style={{ flex: 1, fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>{c.nombre}</span>
+                        <span className="mono" style={{ fontSize: 11, color: "#57534e", minWidth: 55, textAlign: "right", flexShrink: 0 }}>{fmt(c.coste)} {"\u20ac"}</span>
+                        <button className="btn-remove" onClick={() => removeCustomItem("suplidos", c.id)} title="Eliminar">&times;</button>
+                      </div>
+                    ))}
+                    {addingTo === "suplidos" ? (
+                      <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center" }}>
+                        <input className="inp inp-sm" style={{ flex: 1 }} value={newItem.nombre} onChange={e => setNewItem(p => ({ ...p, nombre: e.target.value }))} placeholder="Nombre del suplido" autoFocus />
+                        <input type="number" className="inp inp-sm" style={{ width: 70 }} value={newItem.coste} onChange={e => setNewItem(p => ({ ...p, coste: e.target.value }))} placeholder="0,00" />
+                        <button className="btn-remove" style={{ color: "#059669", fontSize: 16 }} onClick={() => addCustomItem("suplidos")} title="Confirmar">{"\u2713"}</button>
+                        <button className="btn-remove" onClick={() => { setAddingTo(null); setNewItem({ nombre: "", coste: "" }); }} title="Cancelar">&times;</button>
+                      </div>
+                    ) : (
+                      <button className="btn-add-interv" style={{ marginTop: 6 }} onClick={() => { setAddingTo("suplidos"); setNewItem({ nombre: "", coste: "" }); }}>+ A\u00f1adir suplido</button>
+                    )}
                   </CkSection>
                   {gsTotals.count > 0 && (
                     <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e7e5e4", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 12 }}>
@@ -1185,6 +1446,11 @@ export default function App() {
             <div className="factura-body">
               {calc ? (
                 <>
+                  {/* Honorario bruto referencia (sin reducción) */}
+                  {tipoCalculo === "cuantia" && calc.reduccion_total_pct > 0 && (
+                    <div style={{ fontSize: 10, color: "#a8a29e", marginBottom: 4, fontStyle: "italic" }}>Sin reducción: {fmt(calc.honorarios_brutos_ref)} {"\u20ac"}</div>
+                  )}
+
                   {tipoCalculo === "cuantia" && (
                     <>
                       <FRow label="Honorarios brutos" value={calc.honorarios} />
@@ -1200,17 +1466,21 @@ export default function App() {
 
                   {calc.copias_aut > 0 && <FRow label="Copias autorizadas" value={calc.copias_aut} />}
                   {calc.copias_sim > 0 && <FRow label="Copias simples" value={calc.copias_sim} />}
-                  {calc.folios_matriz > 0 && <FRow label="Folios matriz" value={calc.folios_matriz} />}
+                  {calc.copias_elec_aut > 0 && <FRow label="Copias elec. aut." value={calc.copias_elec_aut} />}
+                  {calc.copias_elec_sim > 0 && <FRow label="Copias elec. sim." value={calc.copias_elec_sim} />}
+                  {calc.folios_matriz > 0 && <FRow label={matrizElectronica ? "Folios matriz (elec.)" : "Folios matriz"} value={calc.folios_matriz} />}
                   {calc.arancelarios_adicionales > 0 && <FRow label="Arancelarios adic." value={calc.arancelarios_adicionales} />}
 
                   <div className="factura-divider" />
                   <FRow label="Derechos" value={calc.derechos} highlight color="#92702a" />
+                  {calc.descuento_importe > 0 && <FRow label={`Descuento (${calc.descuento_pct}%)`} value={-calc.descuento_importe} color="#92702a" />}
 
                   {calc.gastos > 0 && <FRow label="Gastos" value={calc.gastos} />}
                   {calc.suplidos > 0 && <FRow label="Suplidos" value={calc.suplidos} />}
 
                   <div className="factura-divider" />
-                  <FRow label={`IVA (${TARIFAS.iva}%)`} value={calc.aplicaIva ? calc.iva : 0} />
+                  {calc.derechos_exentos > 0 && <FRow label="Der. exentos IVA" value={calc.derechos_exentos} color="#a8a29e" />}
+                  <FRow label={`IVA (${TARIFAS.iva}%)`} value={calc.iva} />
 
                   <div className="factura-total">
                     <span className="lbl-total">Total</span>
@@ -1269,14 +1539,18 @@ function CkSection({ title, subtitle, children }) {
   );
 }
 
-function CkRow({ checked, onChange, label, coste, accent = "amber", extra }) {
+function CkRow({ checked, onChange, label, coste, accent = "amber", extra, detail, onRemove }) {
   const ac = accent === "amber" ? "#92702a" : "#6366f1";
   return (
-    <div className="ck-row" style={{ opacity: checked ? 1 : 0.5 }}>
-      <input type="checkbox" checked={checked} onChange={onChange} style={{ accentColor: ac }} />
-      <span style={{ flex: 1, fontSize: 11.5, color: checked ? "#1c1917" : "#78716c", fontWeight: checked ? 500 : 400 }}>{label}</span>
-      {extra}
-      {!extra && <span className="mono" style={{ fontSize: 11, color: checked ? ac : "#a8a29e", minWidth: 55, textAlign: "right", flexShrink: 0 }}>{fmt(coste)} {"\u20ac"}</span>}
+    <div>
+      <div className="ck-row" style={{ opacity: checked ? 1 : 0.5 }}>
+        <input type="checkbox" checked={checked} onChange={onChange} style={{ accentColor: ac }} />
+        <span style={{ flex: 1, fontSize: 11.5, color: checked ? "#1c1917" : "#78716c", fontWeight: checked ? 500 : 400 }}>{label}</span>
+        {extra}
+        {!extra && <span className="mono" style={{ fontSize: 11, color: checked ? ac : "#a8a29e", minWidth: 55, textAlign: "right", flexShrink: 0 }}>{fmt(coste)} {"\u20ac"}</span>}
+        {onRemove && <button className="btn-remove" onClick={onRemove} title="Desmarcar" style={{ marginLeft: 2 }}>&times;</button>}
+      </div>
+      {detail && <div style={{ fontSize: 10, color: "#6b7280", marginLeft: 22, marginTop: -2, marginBottom: 2 }}>{detail}</div>}
     </div>
   );
 }
