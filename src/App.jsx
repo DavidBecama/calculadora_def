@@ -320,6 +320,8 @@ body { margin: 0; background: #f5f5f4; }
   color: #1c1917;
   border-radius: 8px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23a8a29e'%3E%3Cpath d='M5 7L0 2h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
 }
 .sel-light:focus { border-color: #92702a; box-shadow: 0 0 0 2px rgba(146,112,42,0.12); }
 
@@ -1239,6 +1241,7 @@ export default function App() {
                   <div key={k}>
                     <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{l}</label>
                     <input type="number" min="0" className="inp inp-sm" value={inputs[k]} onChange={e => setInput(k, e.target.value)} />
+                    {k === "folios_matriz" && <span style={{ fontSize: 10, color: "#a8a29e", display: "block", marginTop: 3 }}>Solo folios escritos, no contar folios en blanco</span>}
                   </div>
                 ))}
               </div>
