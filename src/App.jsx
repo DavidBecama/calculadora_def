@@ -296,7 +296,11 @@ body { margin: 0; background: #f5f5f4; }
   width: 100%;
   padding: 9px 14px;
   padding-right: 32px;
-  background: rgba(255,255,255,0.08);
+  background-color: rgba(255,255,255,0.08);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='%2394a3b8'%3E%3Cpath d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   color: #f1f5f9;
@@ -306,22 +310,20 @@ body { margin: 0; background: #f5f5f4; }
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%2394a3b8'%3E%3Cpath d='M5 7L0 2h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
   transition: border-color 0.15s;
 }
 .sel:focus { border-color: rgba(251,191,36,0.6); }
 .sel:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .sel-light {
-  background: #fff;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='%23a8a29e'%3E%3Cpath d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
   border: 1px solid #d6d3d1;
   color: #1c1917;
   border-radius: 8px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23a8a29e'%3E%3Cpath d='M5 7L0 2h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
 }
 .sel-light:focus { border-color: #92702a; box-shadow: 0 0 0 2px rgba(146,112,42,0.12); }
 
@@ -643,20 +645,21 @@ body { margin: 0; background: #f5f5f4; }
 .interv-sel {
   width: 100%;
   padding: 5px 7px;
+  padding-right: 20px;
   font-size: 11px;
   font-family: inherit;
   border: 1px solid #e7e5e4;
   border-radius: 5px;
-  background: #fff;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5' fill='%23a8a29e'%3E%3Cpath d='M4 5L0 0h8z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 8px 5px;
   color: #1c1917;
   outline: none;
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' fill='%23a8a29e'%3E%3Cpath d='M4 6L0 1.5h8z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding-right: 20px;
 }
 .interv-sel:focus { border-color: #92702a; }
 .btn-remove {
