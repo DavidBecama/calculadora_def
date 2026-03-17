@@ -118,7 +118,7 @@ const GASTOS_EXTERNOS = [
 ];
 
 const SUPLIDOS_CAT = [
-  { id: "s_na_octava", n: "Nª Octava", coste: 1.80 },
+  { id: "s_na_octava", n: "Nª Octava", coste: 1.20 },
   { id: "s_correos", n: "Correos", coste: 10 },
   { id: "s_otros_suplidos", n: "Otros suplidos", coste: 10, editable: true },
   { id: "s_pago_signo", n: "Pago por uso plataforma SIGNO (ANCERT)", coste: 0, editable: true },
@@ -163,8 +163,9 @@ function calcFoliosMatriz(folios) {
   return (folios - 4) * TARIFAS.folio_matriz_desde_5;
 }
 
+function round2(n) { return Math.round(n * 100) / 100; }
 function fmt(n) {
-  return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return round2(n).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function getTipoCalculo(svc) {
@@ -196,8 +197,8 @@ function getTipoLabel(tipo) {
 const PRESET_ARANC = ["test_cotejo_pe", "test_hash", "dil_deposito_pe", "dil_incorp_pe"];
 const PRESET_ARANC_FOLIOS = { test_cotejo_pe: 4 };
 
-const PRESET_GASTOS = ["g_consulta_deudas", "g_obt_cert_catastral", "g_otros_gastos", "g_peticion_nota", "g_pres_telematica", "g_solicitud_cif"];
-const PRESET_SUPLIDOS = ["s_pago_signo", "s_na_octava"];
+const PRESET_GASTOS = [];
+const PRESET_SUPLIDOS = ["s_na_octava"];
 
 // ═══════════════════════════════════════════════════════════
 // INITIAL STATE BUILDERS
