@@ -104,7 +104,7 @@ const GASTOS_EXTERNOS = [
   { id: "g_incr_anejo", n: "Incr. anejo solarium", coste: 3 },
   { id: "g_nota_marg_energ", n: "Nota marginal cert. energética", coste: 9 },
   { id: "g_obt_cert_seguros", n: "Obtención cert. registro seguros", coste: 20 },
-  { id: "g_obt_cert_catastral", n: "Obtención certificado catastral", coste: 20 },
+  { id: "g_obt_cert_catastral", n: "Obtención certificado catastral", coste: 10 },
   { id: "g_obt_cert_rauv", n: "Obtención certificados del rauv", coste: 20 },
   { id: "g_otros_gastos", n: "Otros gastos", coste: 40, editable: true },
   { id: "g_peticion_nota", n: "Petición de nota", coste: 15 },
@@ -190,62 +190,44 @@ function getTipoLabel(tipo) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// PRESETS POR CATEGORÍA
+// PRESET UNIVERSAL
 // ═══════════════════════════════════════════════════════════
 
-const COMMON_ARANC = ["test_cotejo_pe", "test_hash", "dil_deposito_pe", "dil_incorp_pe"];
-const COMMON_ARANC_FOLIOS = { test_cotejo_pe: 4 };
+const PRESET_ARANC = ["test_cotejo_pe", "test_hash", "dil_deposito_pe", "dil_incorp_pe"];
+const PRESET_ARANC_FOLIOS = { test_cotejo_pe: 4 };
 
-const PRESETS_POR_CATEGORIA = {
-  "05": { label: "Compraventa", gastos: ["g_consulta_deudas","g_obt_cert_catastral","g_otros_gastos","g_peticion_nota","g_pres_telematica","g_solicitud_cif"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "12": { label: "Hipoteca", gastos: ["g_consulta_deudas","g_peticion_nota","g_pres_telematica","g_otros_gastos"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "13": { label: "Cancelación", gastos: ["g_peticion_nota","g_pres_telematica"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "02": { label: "Testamento", gastos: ["g_cert_ult_volunt"], suplidos: ["s_pago_signo"] },
-  "14": { label: "Poder", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo"] },
-  "19": { label: "Sociedad", gastos: ["g_solicitud_cif","g_solicitud_denom","g_elab_estatutos","g_pres_telematica","g_otros_gastos"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "16": { label: "Acta", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo"] },
-  "07": { label: "Donación", gastos: ["g_consulta_deudas","g_obt_cert_catastral","g_peticion_nota","g_pres_telematica","g_gestion_impuestos"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "11": { label: "Herencia", gastos: ["g_consulta_deudas","g_obt_cert_catastral","g_cert_ult_volunt","g_cert_seguro_vida","g_peticion_nota","g_pres_telematica","g_gestion_impuestos","g_gestion_plusvalias"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "04": { label: "Urbanismo", gastos: ["g_obt_cert_catastral","g_peticion_nota","g_pres_telematica","g_const_ref_catastral"], suplidos: ["s_pago_signo","s_na_octava"] },
-  "03": { label: "Rég. matrimonial", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo"] },
-  _default: { label: "General", gastos: ["g_otros_gastos"], suplidos: ["s_pago_signo","s_na_octava"] },
-};
-
-function getPresetForCode(actId) {
-  if (!actId) return PRESETS_POR_CATEGORIA._default;
-  const prefix = actId.substring(0, 2);
-  // Hipoteca exception: 1230-1232 moratorias use default
-  if (prefix === "12" && actId >= "1230" && actId <= "1232") return PRESETS_POR_CATEGORIA._default;
-  return PRESETS_POR_CATEGORIA[prefix] || PRESETS_POR_CATEGORIA._default;
-}
+const PRESET_GASTOS = ["g_consulta_deudas", "g_obt_cert_catastral", "g_otros_gastos", "g_peticion_nota", "g_pres_telematica", "g_solicitud_cif"];
+const PRESET_SUPLIDOS = ["s_pago_signo", "s_na_octava"];
 
 // ═══════════════════════════════════════════════════════════
 // INITIAL STATE BUILDERS
 // ═══════════════════════════════════════════════════════════
 
-function buildInitialAranc(presetAranc = null) {
+function buildInitialAranc(applyPreset = true) {
   const state = {};
   DOCS_ADICIONALES.forEach(d => { state[d.id] = { checked: false, coste: d.coste, modificado: false }; });
   TESTIMONIOS.forEach(t => { state[t.id] = { checked: false, folios: t.folios, costeBase: TARIFAS.testimonio_base, modificado: false }; });
   DILIGENCIAS.forEach(d => { state[d.id] = { checked: false, coste: d.coste, modificado: false }; });
-  const toCheck = presetAranc || COMMON_ARANC;
-  toCheck.forEach(id => {
-    if (state[id]) {
-      state[id].checked = true;
-      if (COMMON_ARANC_FOLIOS[id] !== undefined) state[id].folios = COMMON_ARANC_FOLIOS[id];
-    }
-  });
+  if (applyPreset) {
+    PRESET_ARANC.forEach(id => {
+      if (state[id]) {
+        state[id].checked = true;
+        if (PRESET_ARANC_FOLIOS[id] !== undefined) state[id].folios = PRESET_ARANC_FOLIOS[id];
+      }
+    });
+  }
   return state;
 }
 
-function buildInitialGastosSuplidos(preset = null) {
-  const p = preset || PRESETS_POR_CATEGORIA._default;
+function buildInitialGastosSuplidos(applyPreset = true) {
   const gastos = {};
   GASTOS_EXTERNOS.forEach(g => { gastos[g.id] = { checked: false, coste: g.coste, modificado: false }; });
   const suplidos = {};
   SUPLIDOS_CAT.forEach(s => { suplidos[s.id] = { checked: false, coste: s.coste, modificado: false }; });
-  p.gastos.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
-  p.suplidos.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
+  if (applyPreset) {
+    PRESET_GASTOS.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
+    PRESET_SUPLIDOS.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
+  }
   return { gastos, suplidos };
 }
 
@@ -798,11 +780,10 @@ export default function App() {
     if (s) setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste: s.coste, modificado: false } } }));
   }, []);
   const restablecerTodosGastos = useCallback(() => {
-    const preset = getPresetForCode(actId);
-    setGsState(buildInitialGastosSuplidos(preset));
+    setGsState(buildInitialGastosSuplidos(true));
     setCustomGastos([]);
     setCustomSuplidos([]);
-  }, [actId]);
+  }, []);
 
   const currentCat = CATEGORIAS_NOTING.find(c => c.id === catId);
   const currentAct = currentCat?.acts.find(a => a.id === actId);
@@ -814,9 +795,8 @@ export default function App() {
   const prevActiveSvcRef = useRef(null);
   useEffect(() => {
     if (activeSvc && activeSvc !== prevActiveSvcRef.current) {
-      const preset = getPresetForCode(actId);
-      setAranc(buildInitialAranc(COMMON_ARANC));
-      setGsState(buildInitialGastosSuplidos(preset));
+      setAranc(buildInitialAranc(true));
+      setGsState(buildInitialGastosSuplidos(true));
       setCustomAranc([]);
       setCustomGastos([]);
       setCustomSuplidos([]);
@@ -824,7 +804,7 @@ export default function App() {
       setGsOpen(true);
     }
     prevActiveSvcRef.current = activeSvc;
-  }, [activeSvc, actId]);
+  }, [activeSvc]);
 
   const searchResults = useMemo(() => {
     if (!search.trim() || search.length < 2) return null;
@@ -932,22 +912,20 @@ export default function App() {
 
   const handleSearchSelect = (item) => { setCatId(item.catId); setActId(item.actId); setVarIdx(item.varIdx ?? -1); setSearch(""); };
   const displayName = currentVariant?.n || currentAct?.n || "";
-  const currentPreset = getPresetForCode(actId);
 
-  const handleCargarPreset = useCallback(() => {
-    const preset = getPresetForCode(actId);
-    setAranc(buildInitialAranc(COMMON_ARANC));
-    setGsState(buildInitialGastosSuplidos(preset));
+  const handleRestablecerPreset = useCallback(() => {
+    setAranc(buildInitialAranc(true));
+    setGsState(buildInitialGastosSuplidos(true));
     setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
     setArancOpen(true); setGsOpen(true);
-  }, [actId]);
+  }, []);
 
   const handleLimpiarTodo = useCallback(() => {
     setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
     setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
     setBaseManual(false); setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
-    setAranc(buildInitialAranc([])); setArancOpen(true);
-    setGsState(buildInitialGastosSuplidos(PRESETS_POR_CATEGORIA._default)); setGsOpen(true);
+    setAranc(buildInitialAranc(false)); setArancOpen(true);
+    setGsState(buildInitialGastosSuplidos(false)); setGsOpen(true);
     setIntervinientes([]); setIntervOpen(false);
     setNProtocolo(""); setEstado("Prevista");
     setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
@@ -1023,7 +1001,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn btn-ghost" onClick={handleLimpiarTodo} style={{ fontSize: 11 }}>Limpiar</button>
-              {activeSvc && <button className="btn btn-accent" onClick={handleCargarPreset} style={{ fontSize: 11 }}>Preset · {currentPreset.label}</button>}
+              {activeSvc && <button className="btn btn-accent" onClick={handleRestablecerPreset} style={{ fontSize: 11 }}>Restablecer preset</button>}
             </div>
           </div>
 
@@ -1208,7 +1186,7 @@ export default function App() {
                     </table>
                   </div>
                 )}
-                <button className="btn-add-interv" onClick={addInterviniente}>+ A\u00f1adir interviniente</button>
+                <button className="btn-add-interv" onClick={addInterviniente}>+ Añadir interviniente</button>
               </div>
             )}
           </div>
@@ -1361,7 +1339,7 @@ export default function App() {
                       <button className="btn-remove" onClick={() => { setAddingTo(null); setNewItem({ nombre: "", coste: "" }); }} title="Cancelar">&times;</button>
                     </div>
                   ) : (
-                    <button className="btn-add-interv" style={{ marginTop: 8 }} onClick={() => { setAddingTo("aranc"); setNewItem({ nombre: "", coste: "" }); }}>+ A\u00f1adir concepto</button>
+                    <button className="btn-add-interv" style={{ marginTop: 8 }} onClick={() => { setAddingTo("aranc"); setNewItem({ nombre: "", coste: "" }); }}>+ Añadir concepto</button>
                   )}
                   {arancTotals.count > 0 && (
                     <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e7e5e4", display: "flex", justifyContent: "space-between", fontSize: 12 }}>
@@ -1411,7 +1389,7 @@ export default function App() {
                         <button className="btn-remove" onClick={() => { setAddingTo(null); setNewItem({ nombre: "", coste: "" }); }} title="Cancelar">&times;</button>
                       </div>
                     ) : (
-                      <button className="btn-add-interv" style={{ marginTop: 6 }} onClick={() => { setAddingTo("gastos"); setNewItem({ nombre: "", coste: "" }); }}>+ A\u00f1adir gasto</button>
+                      <button className="btn-add-interv" style={{ marginTop: 6 }} onClick={() => { setAddingTo("gastos"); setNewItem({ nombre: "", coste: "" }); }}>+ Añadir gasto</button>
                     )}
                   </CkSection>
                   <CkSection title="Suplidos" subtitle="sin IVA, sin IRPF">
@@ -1438,7 +1416,7 @@ export default function App() {
                         <button className="btn-remove" onClick={() => { setAddingTo(null); setNewItem({ nombre: "", coste: "" }); }} title="Cancelar">&times;</button>
                       </div>
                     ) : (
-                      <button className="btn-add-interv" style={{ marginTop: 6 }} onClick={() => { setAddingTo("suplidos"); setNewItem({ nombre: "", coste: "" }); }}>+ A\u00f1adir suplido</button>
+                      <button className="btn-add-interv" style={{ marginTop: 6 }} onClick={() => { setAddingTo("suplidos"); setNewItem({ nombre: "", coste: "" }); }}>+ Añadir suplido</button>
                     )}
                   </CkSection>
                   {gsTotals.count > 0 && (
