@@ -222,11 +222,13 @@ function buildInitialAranc(applyPreset = true) {
   return state;
 }
 
-function buildInitialGastosSuplidos(applyPreset = true) {
+function buildInitialGastosSuplidos(applyPreset = true, catPrefix = "") {
   const gastos = {};
   GASTOS_EXTERNOS.forEach(g => { gastos[g.id] = { checked: false, coste: g.coste, modificado: false }; });
   const suplidos = {};
   SUPLIDOS_CAT.forEach(s => { suplidos[s.id] = { checked: false, coste: s.coste, modificado: false }; });
+  // Donaciones (cat 07): Nª Octava = 1.80€
+  if (catPrefix === "07" && suplidos.s_na_octava) suplidos.s_na_octava.coste = 1.80;
   if (applyPreset) {
     PRESET_GASTOS.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
     PRESET_SUPLIDOS.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
@@ -780,13 +782,16 @@ export default function App() {
   const setSuplidoCoste = useCallback((id, coste) => setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste: parseFloat(coste) || 0, modificado: true } } })), []);
   const resetSuplidoCoste = useCallback((id) => {
     const s = SUPLIDOS_CAT.find(x => x.id === id);
-    if (s) setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste: s.coste, modificado: false } } }));
-  }, []);
+    if (!s) return;
+    let coste = s.coste;
+    if (id === "s_na_octava" && catId === "07") coste = 1.80;
+    setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste, modificado: false } } }));
+  }, [catId]);
   const restablecerTodosGastos = useCallback(() => {
-    setGsState(buildInitialGastosSuplidos(true));
+    setGsState(buildInitialGastosSuplidos(true, catId));
     setCustomGastos([]);
     setCustomSuplidos([]);
-  }, []);
+  }, [catId]);
 
   const currentCat = CATEGORIAS_NOTING.find(c => c.id === catId);
   const currentAct = currentCat?.acts.find(a => a.id === actId);
@@ -799,7 +804,7 @@ export default function App() {
   useEffect(() => {
     if (activeSvc && activeSvc !== prevActiveSvcRef.current) {
       setAranc(buildInitialAranc(true));
-      setGsState(buildInitialGastosSuplidos(true));
+      setGsState(buildInitialGastosSuplidos(true, catId));
       setCustomAranc([]);
       setCustomGastos([]);
       setCustomSuplidos([]);
@@ -807,7 +812,7 @@ export default function App() {
       setGsOpen(true);
     }
     prevActiveSvcRef.current = activeSvc;
-  }, [activeSvc]);
+  }, [activeSvc, catId]);
 
   const searchResults = useMemo(() => {
     if (!search.trim() || search.length < 2) return null;
@@ -945,10 +950,10 @@ export default function App() {
 
   const handleRestablecerPreset = useCallback(() => {
     setAranc(buildInitialAranc(true));
-    setGsState(buildInitialGastosSuplidos(true));
+    setGsState(buildInitialGastosSuplidos(true, catId));
     setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
     setArancOpen(true); setGsOpen(true);
-  }, []);
+  }, [catId]);
 
   const handleLimpiarTodo = useCallback(() => {
     setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
@@ -1594,19 +1599,49 @@ function CkRow({ checked, onChange, label, coste, accent = "amber", extra, detai
 }
 
 function FolInput({ value, onChange }) {
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
       <span style={{ fontSize: 9, color: "#a8a29e" }}>fol.</span>
-      <input type="number" min="0" value={value} onChange={onChange} className="inp inp-sm" style={{ width: 38, padding: "2px 4px", textAlign: "center", borderRadius: 5, fontSize: 11 }} />
+      <input type="number" min="0"
+        value={editing ? draft : value}
+        onFocus={() => { setEditing(true); setDraft(String(value)); }}
+        onChange={e => {
+          setDraft(e.target.value);
+          const parsed = parseInt(e.target.value);
+          if (!isNaN(parsed) && parsed >= 0) onChange({ target: { value: String(parsed) } });
+        }}
+        onBlur={() => {
+          setEditing(false);
+          const parsed = parseInt(draft);
+          if (!isNaN(parsed) && parsed >= 0) onChange({ target: { value: String(parsed) } });
+        }}
+        className="inp inp-sm" style={{ width: 38, padding: "2px 4px", textAlign: "center", borderRadius: 5, fontSize: 11 }} />
     </div>
   );
 }
 
 function EditableCoste({ value, modificado, onChange, onReset, label }) {
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
       {label && <span style={{ fontSize: 8, color: "#a8a29e" }}>{label}</span>}
-      <input type="number" min="0" step="0.01" value={value} onChange={e => onChange(e.target.value)} className="inp inp-sm"
+      <input type="number" min="0" step="0.01"
+        value={editing ? draft : value}
+        onFocus={() => { setEditing(true); setDraft(String(value)); }}
+        onChange={e => {
+          setDraft(e.target.value);
+          const parsed = parseFloat(e.target.value);
+          if (!isNaN(parsed) && parsed >= 0) onChange(String(parsed));
+        }}
+        onBlur={() => {
+          setEditing(false);
+          const parsed = parseFloat(draft);
+          if (!isNaN(parsed) && parsed >= 0) onChange(String(parsed));
+        }}
+        className="inp inp-sm"
         style={{ width: 60, padding: "2px 5px", textAlign: "right", borderRadius: 5, fontSize: 11, borderColor: modificado ? "#c9a55a" : undefined }} />
       <span style={{ fontSize: 10, color: "#a8a29e" }}>{"\u20ac"}</span>
       {modificado && <button onClick={onReset} style={{ background: "none", border: "none", cursor: "pointer", color: "#c9a55a", fontSize: 12, padding: 0, lineHeight: 1 }} title="Restablecer">{"\u21BB"}</button>}
