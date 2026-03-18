@@ -163,9 +163,11 @@ function calcFoliosMatriz(folios) {
   return (folios - 4) * TARIFAS.folio_matriz_desde_5;
 }
 
-function round2(n) { return Math.round(n * 100) / 100; }
+function toCents(n) { return Math.round(n * 100); }
+function fromCents(c) { return c / 100; }
+function sumCents(...vals) { return vals.reduce((s, v) => s + Math.round(v * 100), 0) / 100; }
 function fmt(n) {
-  return round2(n).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (Math.round(n * 100) / 100).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function getTipoCalculo(svc) {
@@ -827,22 +829,22 @@ export default function App() {
   }, [search]);
 
   const arancTotals = useMemo(() => {
-    let suma = 0, count = 0;
-    DOCS_ADICIONALES.forEach(d => { if (aranc[d.id]?.checked) { suma += aranc[d.id].coste ?? d.coste; count++; } });
-    TESTIMONIOS.forEach(t => { if (aranc[t.id]?.checked) { suma += calcTestimonio(t, aranc[t.id].folios || 0, aranc[t.id].costeBase); count++; } });
-    DILIGENCIAS.forEach(d => { if (aranc[d.id]?.checked) { suma += aranc[d.id].coste ?? d.coste; count++; } });
-    customAranc.forEach(c => { suma += c.coste; count++; });
-    return { suma, count };
+    let cents = 0, count = 0;
+    DOCS_ADICIONALES.forEach(d => { if (aranc[d.id]?.checked) { cents += toCents(aranc[d.id].coste ?? d.coste); count++; } });
+    TESTIMONIOS.forEach(t => { if (aranc[t.id]?.checked) { cents += toCents(calcTestimonio(t, aranc[t.id].folios || 0, aranc[t.id].costeBase)); count++; } });
+    DILIGENCIAS.forEach(d => { if (aranc[d.id]?.checked) { cents += toCents(aranc[d.id].coste ?? d.coste); count++; } });
+    customAranc.forEach(c => { cents += toCents(c.coste); count++; });
+    return { suma: fromCents(cents), count };
   }, [aranc, customAranc]);
 
   const gsTotals = useMemo(() => {
-    let gastos = 0, gc = 0;
-    GASTOS_EXTERNOS.forEach(g => { if (gsState.gastos[g.id]?.checked) { gastos += gsState.gastos[g.id].coste; gc++; } });
-    customGastos.forEach(c => { gastos += c.coste; gc++; });
-    let suplidos = 0, sc = 0;
-    SUPLIDOS_CAT.forEach(s => { if (gsState.suplidos[s.id]?.checked) { suplidos += gsState.suplidos[s.id].coste; sc++; } });
-    customSuplidos.forEach(c => { suplidos += c.coste; sc++; });
-    return { gastos, suplidos, gastosCount: gc, suplidosCount: sc, total: gastos + suplidos, count: gc + sc };
+    let cGastos = 0, gc = 0;
+    GASTOS_EXTERNOS.forEach(g => { if (gsState.gastos[g.id]?.checked) { cGastos += toCents(gsState.gastos[g.id].coste); gc++; } });
+    customGastos.forEach(c => { cGastos += toCents(c.coste); gc++; });
+    let cSuplidos = 0, sc = 0;
+    SUPLIDOS_CAT.forEach(s => { if (gsState.suplidos[s.id]?.checked) { cSuplidos += toCents(gsState.suplidos[s.id].coste); sc++; } });
+    customSuplidos.forEach(c => { cSuplidos += toCents(c.coste); sc++; });
+    return { gastos: fromCents(cGastos), suplidos: fromCents(cSuplidos), gastosCount: gc, suplidosCount: sc, total: fromCents(cGastos + cSuplidos), count: gc + sc };
   }, [gsState, customGastos, customSuplidos]);
 
   const calc = useMemo(() => {
@@ -859,49 +861,76 @@ export default function App() {
     const copElecSim = parseInt(inputs.copias_elec_sim) || 0;
     const folElecSim = parseInt(inputs.folios_elec_sim) || 0;
     const descPct = Math.min(100, Math.max(0, parseFloat(inputs.descuento) || 0));
+    // All arithmetic in CENTS (integers) to eliminate floating-point errors
     const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
+
+    // 1) Compute each line item → cents (integer)
+    let cHon = 0, cHonNeto = 0;
     switch (tipo) {
       case "cuantia":
-        r.honorarios = calcEscala(baseMin);
+        cHon = toCents(calcEscala(baseMin));
         r.reduccion_pct = activeSvc.r * 100;
         r.reduccion_total_pct = (1 - (1 - activeSvc.r) * 0.95) * 100;
-        r.honorarios_netos = r.honorarios * (1 - activeSvc.r) * 0.95;
+        cHonNeto = Math.round(cHon * (1 - activeSvc.r) * 0.95);
         break;
-      case "arancel_fijo": r.honorarios = activeSvc.f; r.honorarios_netos = activeSvc.f; break;
-      case "fijo": r.honorarios = activeSvc.f; r.honorarios_netos = activeSvc.f; break;
-      case "sin_cuantia": r.honorarios = TARIFAS.doc_sin_cuantia; r.honorarios_netos = TARIFAS.doc_sin_cuantia; break;
-      case "gratuito": r.honorarios = 0; r.honorarios_netos = 0; break;
+      case "arancel_fijo": cHon = toCents(activeSvc.f); cHonNeto = cHon; break;
+      case "fijo": cHon = toCents(activeSvc.f); cHonNeto = cHon; break;
+      case "sin_cuantia": cHon = toCents(TARIFAS.doc_sin_cuantia); cHonNeto = cHon; break;
+      case "gratuito": cHon = 0; cHonNeto = 0; break;
     }
-    r.copias_aut = calcCopiaAut(folAut, copAut);
-    r.copias_sim = calcCopiaSim(folSim, copSim);
-    r.copias_elec_aut = calcCopiaAut(folElecAut, copElecAut);
-    r.copias_elec_sim = calcCopiaSim(folElecSim, copElecSim);
+    const cCopAut = toCents(calcCopiaAut(folAut, copAut));
+    const cCopSim = toCents(calcCopiaSim(folSim, copSim));
+    const cCopElecAut = toCents(calcCopiaAut(folElecAut, copElecAut));
+    const cCopElecSim = toCents(calcCopiaSim(folElecSim, copElecSim));
+    let cFolMat = 0;
     if (matrizElectronica && folMat > 4) {
-      r.folios_matriz = (folMat - 4) * 2 * TARIFAS.copia_autorizada_folio;
+      cFolMat = toCents((folMat - 4) * 2 * TARIFAS.copia_autorizada_folio);
     } else {
-      r.folios_matriz = calcFoliosMatriz(folMat);
+      cFolMat = toCents(calcFoliosMatriz(folMat));
     }
-    r.arancelarios_adicionales = arancTotals.suma;
-    // Honorario bruto referencia (sin reducción) for display
-    r.honorarios_brutos_ref = r.honorarios + r.copias_aut + r.copias_sim + r.copias_elec_aut + r.copias_elec_sim + r.folios_matriz + r.arancelarios_adicionales;
-    r.derechos = r.honorarios_netos + r.copias_aut + r.copias_sim + r.copias_elec_aut + r.copias_elec_sim + r.folios_matriz + r.arancelarios_adicionales;
-    // Descuento applied to derechos
-    r.descuento_importe = r.derechos * descPct / 100;
-    const derechosConDescuento = r.derechos - r.descuento_importe;
-    r.gastos = gsTotals.gastos;
-    r.suplidos = gsTotals.suplidos;
-    // Derechos exentos de IVA: when iv=false, derechos don't enter IVA base
+    const cAranc = toCents(arancTotals.suma);
+
+    // 2) Sum in cents (pure integer addition — no FP error)
+    const cDerechos = cHonNeto + cCopAut + cCopSim + cCopElecAut + cCopElecSim + cFolMat + cAranc;
+    const cDescuento = Math.round(cDerechos * descPct / 100);
+    const cDerechosDesc = cDerechos - cDescuento;
+
+    const cGastos = toCents(gsTotals.gastos);
+    const cSuplidos = toCents(gsTotals.suplidos);
+
+    let cBaseIva, cDerechosExentos = 0;
     if (!r.aplicaIva) {
-      r.derechos_exentos = derechosConDescuento;
-      r.base_iva = r.gastos;
+      cDerechosExentos = cDerechosDesc;
+      cBaseIva = cGastos;
     } else {
-      r.base_iva = derechosConDescuento + r.gastos;
+      cBaseIva = cDerechosDesc + cGastos;
     }
-    r.iva = r.base_iva * TARIFAS.iva / 100;
-    r.base_irpf = r.honorarios_netos;
-    r.irpf = r.base_irpf * TARIFAS.irpf / 100;
-    r.total = derechosConDescuento + r.gastos + r.suplidos + r.iva;
-    r.liquido = r.total - r.irpf;
+    const cIva = Math.round(cBaseIva * TARIFAS.iva / 100);
+    const cIrpf = Math.round(cHonNeto * TARIFAS.irpf / 100);
+    const cTotal = cDerechosDesc + cGastos + cSuplidos + cIva;
+    const cLiquido = cTotal - cIrpf;
+
+    // 3) Convert cents → euros for display
+    r.honorarios = fromCents(cHon);
+    r.honorarios_netos = fromCents(cHonNeto);
+    r.copias_aut = fromCents(cCopAut);
+    r.copias_sim = fromCents(cCopSim);
+    r.copias_elec_aut = fromCents(cCopElecAut);
+    r.copias_elec_sim = fromCents(cCopElecSim);
+    r.folios_matriz = fromCents(cFolMat);
+    r.arancelarios_adicionales = fromCents(cAranc);
+    r.honorarios_brutos_ref = fromCents(cHon + cCopAut + cCopSim + cCopElecAut + cCopElecSim + cFolMat + cAranc);
+    r.derechos = fromCents(cDerechos);
+    r.descuento_importe = fromCents(cDescuento);
+    r.gastos = fromCents(cGastos);
+    r.suplidos = fromCents(cSuplidos);
+    r.derechos_exentos = fromCents(cDerechosExentos);
+    r.base_iva = fromCents(cBaseIva);
+    r.iva = fromCents(cIva);
+    r.base_irpf = fromCents(cHonNeto);
+    r.irpf = fromCents(cIrpf);
+    r.total = fromCents(cTotal);
+    r.liquido = fromCents(cLiquido);
     return r;
   }, [activeSvc, inputs, arancTotals, gsTotals, matrizElectronica]);
 
