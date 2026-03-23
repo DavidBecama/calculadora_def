@@ -712,6 +712,9 @@ export default function App() {
     descuento: "0",
   });
   const [baseManual, setBaseManual] = useState(false);
+  const [nLotes, setNLotes] = useState(1);
+  const [lotesIguales, setLotesIguales] = useState(true);
+  const [cuantiasLotes, setCuantiasLotes] = useState([]);
   const [matrizElectronica, setMatrizElectronica] = useState(false);
   const [valorRefCatastral, setValorRefCatastral] = useState("");
   const [ley11_2023, setLey11_2023] = useState(false);
@@ -772,6 +775,31 @@ export default function App() {
     if (k === "base_minutable") setBaseManual(true);
   }, [baseManual]);
   const resyncBase = useCallback(() => { setBaseManual(false); setInputs(p => ({ ...p, base_minutable: p.cuantia })); }, []);
+
+  const handleNLotesChange = useCallback((v) => {
+    const n = Math.max(1, parseInt(v) || 1);
+    setNLotes(n);
+    setCuantiasLotes(prev => {
+      const arr = [...prev];
+      while (arr.length < n) arr.push("");
+      return arr.slice(0, n);
+    });
+  }, []);
+  const handleCuantiaLote = useCallback((idx, v) => {
+    setCuantiasLotes(prev => {
+      const arr = [...prev];
+      arr[idx] = v;
+      const suma = arr.reduce((s, x) => s + (parseFloat(x?.replace(/\./g, "").replace(",", ".")) || 0), 0);
+      const sumaStr = suma > 0 ? suma.toFixed(2).replace(".", ",") : "";
+      setInputs(p => {
+        const next = { ...p, cuantia: sumaStr };
+        if (!baseManual) next.base_minutable = sumaStr;
+        return next;
+      });
+      return arr;
+    });
+  }, [baseManual]);
+
   const toggleAranc = useCallback((id) => setAranc(p => ({ ...p, [id]: { ...p[id], checked: !p[id].checked } })), []);
   const setArancFolios = useCallback((id, folios) => setAranc(p => ({ ...p, [id]: { ...p[id], folios: parseInt(folios) || 0 } })), []);
   const setArancCoste = useCallback((id, coste) => setAranc(p => ({ ...p, [id]: { ...p[id], coste: parseFloat(coste) || 0, modificado: true } })), []);
@@ -819,6 +847,7 @@ export default function App() {
   const currentVariant = hasVariants && varIdx >= 0 ? currentAct.v[varIdx] : null;
   const activeSvc = currentVariant || (currentAct && !hasVariants ? currentAct : null);
   const tipoCalculo = activeSvc ? getTipoCalculo(activeSvc) : null;
+  const esLoteable = catId === "07" || catId === "11";
 
   const prevActiveSvcRef = useRef(null);
   useEffect(() => {
@@ -890,17 +919,23 @@ export default function App() {
     const folElecSim = parseInt(inputs.folios_elec_sim) || 0;
     const descPct = Math.min(100, Math.max(0, parseFloat(inputs.descuento) || 0));
     // All arithmetic in CENTS (integers) to eliminate floating-point errors
-    const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, n7_papel: 0, n7_papel_caras: 0, n7_elec: 0, n7_elec_caras: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
+    const rlPct = activeSvc.rl || 0;
+    const lotes = esLoteable && nLotes > 1 ? nLotes : 1;
+    const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, rl_pct: 0, n_lotes: lotes, hon_por_lote: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, n7_papel: 0, n7_papel_caras: 0, n7_elec: 0, n7_elec_caras: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
 
     // 1) Compute each line item → cents (integer)
     let cHon = 0, cHonNeto = 0;
     switch (tipo) {
-      case "cuantia":
-        cHon = toCents(calcEscala(baseMin));
+      case "cuantia": {
+        const cuantiaPorLote = baseMin / lotes;
+        const honPorLote = calcEscala(cuantiaPorLote);
+        cHon = toCents(honPorLote * lotes);
+        r.hon_por_lote = honPorLote;
         r.reduccion_pct = activeSvc.r * 100;
-        r.reduccion_total_pct = (1 - (1 - activeSvc.r) * 0.95) * 100;
-        cHonNeto = Math.round(cHon * (1 - activeSvc.r) * 0.95);
+        r.rl_pct = rlPct * 100;
+        cHonNeto = Math.round(cHon * (1 - activeSvc.r) * (1 - rlPct));
         break;
+      }
       case "arancel_fijo": cHon = toCents(activeSvc.f); cHonNeto = cHon; break;
       case "fijo": cHon = toCents(activeSvc.f); cHonNeto = cHon; break;
       case "sin_cuantia": cHon = toCents(TARIFAS.doc_sin_cuantia); cHonNeto = cHon; break;
@@ -965,7 +1000,7 @@ export default function App() {
     r.total = fromCents(cTotal);
     r.liquido = fromCents(cLiquido);
     return r;
-  }, [activeSvc, inputs, arancTotals, gsTotals, matrizElectronica]);
+  }, [activeSvc, inputs, arancTotals, gsTotals, matrizElectronica, nLotes, esLoteable]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -986,7 +1021,8 @@ export default function App() {
   const handleLimpiarTodo = useCallback(() => {
     setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
     setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", caras_blanco: "0", folios_matriz_elec: "0", caras_blanco_elec: "0", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
-    setBaseManual(false); setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
+    setBaseManual(false); setNLotes(1); setLotesIguales(true); setCuantiasLotes([]);
+    setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
     setAranc(buildInitialAranc(false)); setArancOpen(true);
     setGsState(buildInitialGastosSuplidos(false)); setGsOpen(true);
     setIntervinientes([]); setIntervOpen(false);
@@ -1002,10 +1038,11 @@ export default function App() {
     if (nProtocolo) L.push(`Nº Protocolo: ${nProtocolo}`);
     L.push(`Estado: ${estado}`);
     L.push("");
-    if (tipoCalculo === "cuantia" && calc.reduccion_total_pct > 0) L.push(`Sin reducci\u00f3n (ref.):        ${fmt(calc.honorarios_brutos_ref)} \u20ac`);
+    if (tipoCalculo === "cuantia" && calc.rl_pct > 0) L.push(`Sin reducci\u00f3n (ref.):        ${fmt(calc.honorarios_brutos_ref)} \u20ac`);
     if (tipoCalculo === "cuantia") {
       L.push(`Honorarios brutos (N\u00ba 2):  ${fmt(calc.honorarios)} \u20ac`);
-      if (calc.reduccion_total_pct > 0) L.push(`Reducci\u00f3n (-${calc.reduccion_total_pct.toFixed(2)}%): ${fmt(-(calc.honorarios - calc.honorarios_netos))} \u20ac`);
+      if (calc.n_lotes > 1) L.push(`  (${calc.n_lotes} lotes \u00d7 ${fmt(calc.hon_por_lote)}\u20ac/lote)`);
+      if (calc.rl_pct > 0) L.push(`Reducci\u00f3n (-${calc.rl_pct}%): ${fmt(-(calc.honorarios - calc.honorarios_netos))} \u20ac`);
     } else if (tipoCalculo === "fijo") L.push(`Tarifa fija (N\u00ba 1):         ${fmt(calc.honorarios)} \u20ac`);
     else if (tipoCalculo === "arancel_fijo") L.push(`Arancel fijo legal:          ${fmt(calc.honorarios)} \u20ac`);
     else if (tipoCalculo === "sin_cuantia") L.push(`Doc. sin cuant\u00eda (N\u00ba 1):    ${fmt(calc.honorarios)} \u20ac`);
@@ -1096,10 +1133,39 @@ export default function App() {
             )}
             {tipoCalculo === "cuantia" && (
               <>
-                <div className="header-field">
-                  <span className="lbl">Cuantía ({"\u20ac"})</span>
-                  <input className="inp inp-mono" value={inputs.cuantia} onChange={e => setInput("cuantia", e.target.value)} placeholder="200.000" style={{ fontWeight: 600 }} />
-                </div>
+                {esLoteable && (
+                  <div className="header-field">
+                    <span className="lbl">Nº de lotes</span>
+                    <input type="number" min="1" className="inp inp-sm" value={nLotes} onChange={e => handleNLotesChange(e.target.value)} style={{ width: 70 }} />
+                  </div>
+                )}
+                {esLoteable && nLotes > 1 && (
+                  <div className="header-field" style={{ alignSelf: "center" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#1c1917", cursor: "pointer" }}>
+                      <input type="checkbox" checked={lotesIguales} onChange={() => setLotesIguales(!lotesIguales)} style={{ accentColor: "#92702a", width: 13, height: 13 }} />
+                      ¿Son lotes iguales?
+                    </label>
+                  </div>
+                )}
+                {esLoteable && nLotes > 1 && !lotesIguales ? (
+                  <>
+                    {cuantiasLotes.slice(0, nLotes).map((v, i) => (
+                      <div className="header-field" key={i}>
+                        <span className="lbl">Lote {i + 1} ({"\u20ac"})</span>
+                        <input className="inp inp-mono" value={v} onChange={e => handleCuantiaLote(i, e.target.value)} placeholder="0" style={{ fontWeight: 600 }} />
+                      </div>
+                    ))}
+                    <div className="header-field">
+                      <span className="lbl" style={{ fontWeight: 600, color: "#92702a" }}>Cuantía total ({"\u20ac"})</span>
+                      <input className="inp inp-mono" value={inputs.cuantia} readOnly style={{ fontWeight: 600, background: "#fafaf9", color: "#78716c" }} />
+                    </div>
+                  </>
+                ) : (
+                  <div className="header-field">
+                    <span className="lbl">Cuantía ({"\u20ac"})</span>
+                    <input className="inp inp-mono" value={inputs.cuantia} onChange={e => setInput("cuantia", e.target.value)} placeholder="200.000" style={{ fontWeight: 600 }} />
+                  </div>
+                )}
                 <div className="header-field">
                   <span className="lbl" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     Base minutable ({"\u20ac"})
@@ -1548,14 +1614,17 @@ export default function App() {
               {calc ? (
                 <>
                   {/* Honorario bruto referencia (sin reducción) */}
-                  {tipoCalculo === "cuantia" && calc.reduccion_total_pct > 0 && (
+                  {tipoCalculo === "cuantia" && calc.rl_pct > 0 && (
                     <div style={{ fontSize: 10, color: "#a8a29e", marginBottom: 4, fontStyle: "italic" }}>Sin reducción: {fmt(calc.honorarios_brutos_ref)} {"\u20ac"}</div>
                   )}
 
                   {tipoCalculo === "cuantia" && (
                     <>
                       <FRow label="Honorarios brutos" value={calc.honorarios} />
-                      {calc.reduccion_total_pct > 0 && <FRow label={`Reducción (\u2212${calc.reduccion_total_pct.toFixed(1)}%)`} value={-(calc.honorarios - calc.honorarios_netos)} color="#92702a" />}
+                      {calc.n_lotes > 1 && (
+                        <div style={{ fontSize: 10, color: "#a8a29e", marginTop: -2, marginBottom: 4, paddingLeft: 4 }}>({calc.n_lotes} lotes × {fmt(calc.hon_por_lote)}{"\u20ac"}/lote)</div>
+                      )}
+                      {calc.rl_pct > 0 && <FRow label={`Reducción (\u2212${calc.rl_pct}%)`} value={-(calc.honorarios - calc.honorarios_netos)} color="#92702a" />}
                     </>
                   )}
                   {tipoCalculo === "fijo" && <FRow label="Tarifa fija" value={calc.honorarios} />}
