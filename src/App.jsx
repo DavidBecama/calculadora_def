@@ -981,7 +981,7 @@ export default function App() {
     if (!calc || !activeSvc) return;
     const L = [];
     L.push(`DESGLOSE - ${displayName}`);
-    if (nProtocolo) L.push(`N\u00ba Protocolo: ${nProtocolo}`);
+    if (nProtocolo) L.push(`Nº Protocolo: ${nProtocolo}`);
     L.push(`Estado: ${estado}`);
     L.push("");
     if (tipoCalculo === "cuantia" && calc.reduccion_total_pct > 0) L.push(`Sin reducci\u00f3n (ref.):        ${fmt(calc.honorarios_brutos_ref)} \u20ac`);
@@ -1155,7 +1155,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>N\u00ba Protocolo</label>
+                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Nº Protocolo</label>
                 <input className="inp inp-sm" value={nProtocolo} onChange={e => setNProtocolo(e.target.value)} placeholder="Ej: 69958" />
               </div>
               <div style={{ flex: 1 }}>
