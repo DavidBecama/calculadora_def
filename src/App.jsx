@@ -163,6 +163,12 @@ function calcFoliosMatriz(folios) {
   return (folios - 4) * TARIFAS.folio_matriz_desde_5;
 }
 
+function calcN7(folios, carasBlanco) {
+  const carasEscritas = folios * 2 - carasBlanco;
+  const carasMinutables = Math.max(0, carasEscritas - 8);
+  return { carasEscritas, carasMinutables, importe: carasMinutables * TARIFAS.copia_autorizada_folio };
+}
+
 function toCents(n) { return Math.round(n * 100); }
 function fromCents(c) { return c / 100; }
 function sumCents(...vals) { return vals.reduce((s, v) => s + Math.round(v * 100), 0) / 100; }
@@ -697,7 +703,9 @@ export default function App() {
   const [inputs, setInputs] = useState({
     cuantia: "",
     base_minutable: "",
-    folios_matriz: "4", copias_aut: "1", folios_aut: "4",
+    folios_matriz: "4", caras_blanco: "0",
+    folios_matriz_elec: "0", caras_blanco_elec: "0",
+    copias_aut: "1", folios_aut: "4",
     copias_sim: "1", folios_sim: "4",
     copias_elec_aut: "0", folios_elec_aut: "0",
     copias_elec_sim: "0", folios_elec_sim: "0",
@@ -749,10 +757,11 @@ export default function App() {
       const next = { ...p, [k]: v };
       // Auto-sync base_minutable from cuantía unless manually edited
       if (k === "cuantia" && !baseManual) next.base_minutable = v;
-      // Auto-recalc Nª Octava when folios_matriz changes
-      if (k === "folios_matriz") {
-        const folios = parseInt(v) || 0;
-        const nuevaOctava = Math.round(folios * 0.15 * 100) / 100;
+      // Auto-recalc Nª Octava when any folios_matriz changes
+      if (k === "folios_matriz" || k === "folios_matriz_elec") {
+        const fPapel = parseInt(k === "folios_matriz" ? v : p.folios_matriz) || 0;
+        const fElec = parseInt(k === "folios_matriz_elec" ? v : p.folios_matriz_elec) || 0;
+        const nuevaOctava = Math.round((fPapel + fElec) * 0.15 * 100) / 100;
         setGsState(prev => {
           if (prev.suplidos.s_na_octava?.modificado) return prev;
           return { ...prev, suplidos: { ...prev.suplidos, s_na_octava: { ...prev.suplidos.s_na_octava, coste: nuevaOctava } } };
@@ -792,11 +801,12 @@ export default function App() {
     if (!s) return;
     let coste = s.coste;
     if (id === "s_na_octava") {
-      const folios = parseInt(inputs.folios_matriz) || 0;
-      coste = Math.round(folios * 0.15 * 100) / 100;
+      const fPapel = parseInt(inputs.folios_matriz) || 0;
+      const fElec = parseInt(inputs.folios_matriz_elec) || 0;
+      coste = Math.round((fPapel + fElec) * 0.15 * 100) / 100;
     }
     setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste, modificado: false } } }));
-  }, [inputs.folios_matriz]);
+  }, [inputs.folios_matriz, inputs.folios_matriz_elec]);
   const restablecerTodosGastos = useCallback(() => {
     setGsState(buildInitialGastosSuplidos(true, catId));
     setCustomGastos([]);
@@ -867,6 +877,9 @@ export default function App() {
     const tipo = getTipoCalculo(activeSvc);
     const baseMin = parseFloat(inputs.base_minutable?.replace(/\./g, "").replace(",", ".")) || 0;
     const folMat = parseInt(inputs.folios_matriz) || 0;
+    const carasBlanco = Math.max(0, parseInt(inputs.caras_blanco) || 0);
+    const folMatElec = parseInt(inputs.folios_matriz_elec) || 0;
+    const carasBlancoElec = Math.max(0, parseInt(inputs.caras_blanco_elec) || 0);
     const copAut = parseInt(inputs.copias_aut) || 0;
     const folAut = parseInt(inputs.folios_aut) || 0;
     const copSim = parseInt(inputs.copias_sim) || 0;
@@ -877,7 +890,7 @@ export default function App() {
     const folElecSim = parseInt(inputs.folios_elec_sim) || 0;
     const descPct = Math.min(100, Math.max(0, parseFloat(inputs.descuento) || 0));
     // All arithmetic in CENTS (integers) to eliminate floating-point errors
-    const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
+    const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, reduccion_total_pct: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, n7_papel: 0, n7_papel_caras: 0, n7_elec: 0, n7_elec_caras: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
 
     // 1) Compute each line item → cents (integer)
     let cHon = 0, cHonNeto = 0;
@@ -897,12 +910,13 @@ export default function App() {
     const cCopSim = toCents(calcCopiaSim(folSim, copSim));
     const cCopElecAut = toCents(calcCopiaAut(folElecAut, copElecAut));
     const cCopElecSim = toCents(calcCopiaSim(folElecSim, copElecSim));
-    let cFolMat = 0;
-    if (matrizElectronica && folMat > 4) {
-      cFolMat = toCents((folMat - 4) * 2 * TARIFAS.copia_autorizada_folio);
-    } else {
-      cFolMat = toCents(calcFoliosMatriz(folMat));
-    }
+    // Nº7 — Folios de matriz (papel)
+    const n7Papel = calcN7(folMat, carasBlanco);
+    const cN7Papel = toCents(n7Papel.importe);
+    // Nº7 — Folios de matriz (electrónica)
+    const n7Elec = matrizElectronica ? calcN7(folMatElec, carasBlancoElec) : { carasEscritas: 0, carasMinutables: 0, importe: 0 };
+    const cN7Elec = toCents(n7Elec.importe);
+    const cFolMat = cN7Papel + cN7Elec;
     const cAranc = toCents(arancTotals.suma);
 
     // 2) Sum in cents (pure integer addition — no FP error)
@@ -932,6 +946,10 @@ export default function App() {
     r.copias_sim = fromCents(cCopSim);
     r.copias_elec_aut = fromCents(cCopElecAut);
     r.copias_elec_sim = fromCents(cCopElecSim);
+    r.n7_papel = fromCents(cN7Papel);
+    r.n7_papel_caras = n7Papel.carasMinutables;
+    r.n7_elec = fromCents(cN7Elec);
+    r.n7_elec_caras = n7Elec.carasMinutables;
     r.folios_matriz = fromCents(cFolMat);
     r.arancelarios_adicionales = fromCents(cAranc);
     r.honorarios_brutos_ref = fromCents(cHon + cCopAut + cCopSim + cCopElecAut + cCopElecSim + cFolMat + cAranc);
@@ -967,7 +985,7 @@ export default function App() {
 
   const handleLimpiarTodo = useCallback(() => {
     setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
-    setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
+    setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", caras_blanco: "0", folios_matriz_elec: "0", caras_blanco_elec: "0", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
     setBaseManual(false); setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
     setAranc(buildInitialAranc(false)); setArancOpen(true);
     setGsState(buildInitialGastosSuplidos(false)); setGsOpen(true);
@@ -997,7 +1015,8 @@ export default function App() {
     if (calc.copias_sim > 0) L.push(`Copias simples:              ${fmt(calc.copias_sim)} \u20ac`);
     if (calc.copias_elec_aut > 0) L.push(`Copias elec. autorizadas:    ${fmt(calc.copias_elec_aut)} \u20ac`);
     if (calc.copias_elec_sim > 0) L.push(`Copias elec. simples:        ${fmt(calc.copias_elec_sim)} \u20ac`);
-    if (calc.folios_matriz > 0) L.push(`Folios de matriz${matrizElectronica ? " (elec.)" : ""}:${matrizElectronica ? "    " : "            "}${fmt(calc.folios_matriz)} \u20ac`);
+    if (calc.n7_papel > 0) L.push(`Nº7 matriz (${calc.n7_papel_caras} caras min.): ${fmt(calc.n7_papel)} \u20ac`);
+    if (calc.n7_elec > 0) L.push(`Nº7 matriz elec. (${calc.n7_elec_caras} caras min.): ${fmt(calc.n7_elec)} \u20ac`);
     if (calc.arancelarios_adicionales > 0) L.push(`Arancelarios adicionales:    ${fmt(calc.arancelarios_adicionales)} \u20ac`);
     customAranc.forEach(c => L.push(`  ${c.nombre}: ${fmt(c.coste)} \u20ac`));
     L.push("---");
@@ -1260,14 +1279,24 @@ export default function App() {
                 <div style={{ padding: "8px 12px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.12)", borderRadius: 8, fontSize: 12, color: "#6366f1", marginBottom: 12 }}>Sin cuantía: <b>{fmt(TARIFAS.doc_sin_cuantia)} {"\u20ac"}</b></div>
               )}
 
-              {/* Copias físicas */}
-              <div style={{ fontSize: 9, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Copias físicas</div>
+              {/* Matriz papel */}
+              <div style={{ fontSize: 9, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Nº 7 — Matriz</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
-                {[["folios_matriz","Folios matriz"],["copias_aut","Copias aut."],["folios_aut","Fol./copia aut."],["copias_sim","Copias sim."],["folios_sim","Fol./copia sim."]].map(([k,l]) => (
+                {[["folios_matriz","Folios matriz"],["caras_blanco","Caras en blanco"]].map(([k,l]) => (
                   <div key={k}>
                     <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{l}</label>
                     <input type="number" min="0" className="inp inp-sm" value={inputs[k]} onChange={e => setInput(k, e.target.value)} />
-                    {k === "folios_matriz" && <span style={{ fontSize: 10, color: "#a8a29e", display: "block", marginTop: 3 }}>Solo folios escritos, no contar folios en blanco</span>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Copias físicas */}
+              <div style={{ fontSize: 9, fontWeight: 600, color: "#a8a29e", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 12, marginBottom: 4 }}>Copias físicas</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+                {[["copias_aut","Copias aut."],["folios_aut","Fol./copia aut."],["copias_sim","Copias sim."],["folios_sim","Fol./copia sim."]].map(([k,l]) => (
+                  <div key={k}>
+                    <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{l}</label>
+                    <input type="number" min="0" className="inp inp-sm" value={inputs[k]} onChange={e => setInput(k, e.target.value)} />
                   </div>
                 ))}
               </div>
@@ -1289,6 +1318,16 @@ export default function App() {
                 <span style={{ fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>Matriz electrónica</span>
                 {matrizElectronica && <span style={{ fontSize: 10, color: "#d97706", fontWeight: 500, background: "rgba(217,119,6,0.08)", padding: "2px 8px", borderRadius: 4 }}>Verificar tarifa con Aroa</span>}
               </div>
+              {matrizElectronica && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8, marginTop: 8 }}>
+                  {[["folios_matriz_elec","Folios matriz (elec.)"],["caras_blanco_elec","Caras en blanco (elec.)"]].map(([k,l]) => (
+                    <div key={k}>
+                      <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>{l}</label>
+                      <input type="number" min="0" className="inp inp-sm" value={inputs[k]} onChange={e => setInput(k, e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="sep" style={{ margin: "12px 0" }} />
 
@@ -1361,7 +1400,16 @@ export default function App() {
                     })}
                   </CkSection>
                   <CkSection title="Nº 7 — Matriz">
-                    <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>Folios: <b style={{ color: "#44403c" }}>{inputs.folios_matriz}</b> — primeros 4 gratis, luego 6,01 {"\u20ac"}/folio</p>
+                    {calc && calc.n7_papel_caras > 0 ? (
+                      <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>{inputs.folios_matriz} fol. (<b style={{ color: "#44403c" }}>{calc.n7_papel_caras} caras minutables</b> a {fmt(TARIFAS.copia_autorizada_folio)}{"\u20ac"}) → <b style={{ color: "#44403c" }}>{fmt(calc.n7_papel)}{"\u20ac"}</b></p>
+                    ) : (
+                      <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>{inputs.folios_matriz} fol. — 0 caras minutables (primeras 8 caras gratis)</p>
+                    )}
+                    {matrizElectronica && (calc && calc.n7_elec_caras > 0 ? (
+                      <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>{inputs.folios_matriz_elec} fol. elec. (<b style={{ color: "#44403c" }}>{calc.n7_elec_caras} caras minutables</b> a {fmt(TARIFAS.copia_autorizada_folio)}{"\u20ac"}) → <b style={{ color: "#44403c" }}>{fmt(calc.n7_elec)}{"\u20ac"}</b></p>
+                    ) : (
+                      <p style={{ fontSize: 11, color: "#78716c", padding: "4px 0" }}>{inputs.folios_matriz_elec} fol. elec. — 0 caras minutables (primeras 8 caras gratis)</p>
+                    ))}
                   </CkSection>
                   {/* Custom arancelarios */}
                   {customAranc.length > 0 && (
@@ -1521,7 +1569,8 @@ export default function App() {
                   {calc.copias_sim > 0 && <FRow label="Copias simples" value={calc.copias_sim} />}
                   {calc.copias_elec_aut > 0 && <FRow label="Copias elec. aut." value={calc.copias_elec_aut} />}
                   {calc.copias_elec_sim > 0 && <FRow label="Copias elec. sim." value={calc.copias_elec_sim} />}
-                  {calc.folios_matriz > 0 && <FRow label={matrizElectronica ? "Folios matriz (elec.)" : "Folios matriz"} value={calc.folios_matriz} />}
+                  {calc.n7_papel > 0 && <FRow label={`Nº7 matriz (${calc.n7_papel_caras} caras)`} value={calc.n7_papel} />}
+                  {calc.n7_elec > 0 && <FRow label={`Nº7 matriz elec. (${calc.n7_elec_caras} caras)`} value={calc.n7_elec} />}
                   {calc.arancelarios_adicionales > 0 && <FRow label="Arancelarios adic." value={calc.arancelarios_adicionales} />}
 
                   <div className="factura-divider" />
