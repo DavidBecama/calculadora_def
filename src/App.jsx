@@ -118,7 +118,7 @@ const GASTOS_EXTERNOS = [
 ];
 
 const SUPLIDOS_CAT = [
-  { id: "s_na_octava", n: "Nª Octava", coste: 1.20 },
+  { id: "s_na_octava", n: "Nª Octava", coste: 0.60, editable: true },
   { id: "s_correos", n: "Correos", coste: 10 },
   { id: "s_otros_suplidos", n: "Otros suplidos", coste: 10, editable: true },
   { id: "s_pago_signo", n: "Pago por uso plataforma SIGNO (ANCERT)", coste: 0, editable: true },
@@ -227,8 +227,6 @@ function buildInitialGastosSuplidos(applyPreset = true, catPrefix = "") {
   GASTOS_EXTERNOS.forEach(g => { gastos[g.id] = { checked: false, coste: g.coste, modificado: false }; });
   const suplidos = {};
   SUPLIDOS_CAT.forEach(s => { suplidos[s.id] = { checked: false, coste: s.coste, modificado: false }; });
-  // Donaciones (cat 07): Nª Octava = 1.80€
-  if (catPrefix === "07" && suplidos.s_na_octava) suplidos.s_na_octava.coste = 1.80;
   if (applyPreset) {
     PRESET_GASTOS.forEach(id => { if (gastos[id]) gastos[id].checked = true; });
     PRESET_SUPLIDOS.forEach(id => { if (suplidos[id]) suplidos[id].checked = true; });
@@ -751,6 +749,15 @@ export default function App() {
       const next = { ...p, [k]: v };
       // Auto-sync base_minutable from cuantía unless manually edited
       if (k === "cuantia" && !baseManual) next.base_minutable = v;
+      // Auto-recalc Nª Octava when folios_matriz changes
+      if (k === "folios_matriz") {
+        const folios = parseInt(v) || 0;
+        const nuevaOctava = Math.round(folios * 0.15 * 100) / 100;
+        setGsState(prev => {
+          if (prev.suplidos.s_na_octava?.modificado) return prev;
+          return { ...prev, suplidos: { ...prev.suplidos, s_na_octava: { ...prev.suplidos.s_na_octava, coste: nuevaOctava } } };
+        });
+      }
       return next;
     });
     if (k === "base_minutable") setBaseManual(true);
@@ -784,9 +791,12 @@ export default function App() {
     const s = SUPLIDOS_CAT.find(x => x.id === id);
     if (!s) return;
     let coste = s.coste;
-    if (id === "s_na_octava" && catId === "07") coste = 1.80;
+    if (id === "s_na_octava") {
+      const folios = parseInt(inputs.folios_matriz) || 0;
+      coste = Math.round(folios * 0.15 * 100) / 100;
+    }
     setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste, modificado: false } } }));
-  }, [catId]);
+  }, [inputs.folios_matriz]);
   const restablecerTodosGastos = useCallback(() => {
     setGsState(buildInitialGastosSuplidos(true, catId));
     setCustomGastos([]);
