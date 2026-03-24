@@ -19,6 +19,7 @@ const TARIFAS = {
   copia_autorizada_folio: 3.005061,
   copia_autorizada_folio_12: 1.50253,
   copia_simple_folio: 0.601012,
+  copia_simple_folio_12: 0.300506,
   folio_matriz_desde_5: 6.010121,
   folio_timbrado: 0.15,
   testimonio_base: 3.01,
@@ -155,7 +156,9 @@ function calcCopiaAut(folios, copias = 1) {
 }
 
 function calcCopiaSim(folios, copias = 1) {
-  return copias * folios * TARIFAS.copia_simple_folio;
+  if (folios <= 0 || copias <= 0) return 0;
+  if (folios <= 11) return copias * folios * TARIFAS.copia_simple_folio;
+  return copias * (11 * TARIFAS.copia_simple_folio + (folios - 11) * TARIFAS.copia_simple_folio_12);
 }
 
 function calcFoliosMatriz(folios) {
