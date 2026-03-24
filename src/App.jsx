@@ -127,7 +127,7 @@ const SUPLIDOS_CAT = [
 
 const TIPOS_INTERVINIENTE = [
   "Poderdante", "Apoderado", "Concedente/Consentidor", "Albacea/Contador",
-  "Hijos", "Letrado", "Testigos", "Causante", "Invitado", "Menor",
+  "Hijos", "Intérprete", "Letrado", "Testigos", "Causante", "Invitado", "Menor",
   "Socio", "Requerido", "Sociedad Creada",
 ];
 
@@ -727,6 +727,8 @@ export default function App() {
   const [intervOpen, setIntervOpen] = useState(false);
   const [nProtocolo, setNProtocolo] = useState("");
   const [estado, setEstado] = useState("Prevista");
+  const [medioPago, setMedioPago] = useState("");
+  const [notas, setNotas] = useState("");
   const [customAranc, setCustomAranc] = useState([]);
   const [customGastos, setCustomGastos] = useState([]);
   const [customSuplidos, setCustomSuplidos] = useState([]);
@@ -1026,7 +1028,7 @@ export default function App() {
     setAranc(buildInitialAranc(false)); setArancOpen(true);
     setGsState(buildInitialGastosSuplidos(false)); setGsOpen(true);
     setIntervinientes([]); setIntervOpen(false);
-    setNProtocolo(""); setEstado("Prevista");
+    setNProtocolo(""); setEstado("Prevista"); setMedioPago(""); setNotas("");
     setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
     setAddingTo(null); setNewItem({ nombre: "", coste: "" });
   }, []);
@@ -1037,6 +1039,8 @@ export default function App() {
     L.push(`DESGLOSE - ${displayName}`);
     if (nProtocolo) L.push(`Nº Protocolo: ${nProtocolo}`);
     L.push(`Estado: ${estado}`);
+    if (medioPago) L.push(`Medio de pago: ${medioPago}`);
+    if (notas.trim()) L.push(`Notas: ${notas.trim()}`);
     L.push("");
     if (tipoCalculo === "cuantia" && calc.rl_pct > 0) L.push(`Sin reducci\u00f3n (ref.):        ${fmt(calc.honorarios_brutos_ref)} \u20ac`);
     if (tipoCalculo === "cuantia") {
@@ -1082,7 +1086,7 @@ export default function App() {
       intervinientes.forEach(iv => L.push(`  ${iv.tipo}: ${iv.nombre} ${iv.apellidos}${iv.dni ? ` (${iv.dni})` : ""}${iv.nr ? " [NR]" : ""}`));
     }
     try { await navigator.clipboard.writeText(L.join("\n")); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
-  }, [calc, activeSvc, displayName, tipoCalculo, matrizElectronica, nProtocolo, estado, customAranc, customGastos, customSuplidos, intervinientes]);
+  }, [calc, activeSvc, displayName, tipoCalculo, matrizElectronica, nProtocolo, estado, medioPago, notas, customAranc, customGastos, customSuplidos, intervinientes]);
 
   // ═══════════════════════════════════════════════════════════
   // RENDER
@@ -1229,8 +1233,8 @@ export default function App() {
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1917", lineHeight: 1.3 }}>{displayName}</div>
                   <span style={{
                     padding: "3px 10px", borderRadius: 100, fontSize: 10, fontWeight: 600,
-                    background: estado === "Autorizada" ? "rgba(5,150,105,0.1)" : estado === "Sin Factura" ? "rgba(168,162,158,0.15)" : "rgba(59,130,246,0.1)",
-                    color: estado === "Autorizada" ? "#059669" : estado === "Sin Factura" ? "#78716c" : "#3b82f6",
+                    background: estado === "Autorizada" ? "rgba(5,150,105,0.1)" : estado === "Minutada" ? "rgba(146,112,42,0.1)" : estado === "Sin Factura" ? "rgba(168,162,158,0.15)" : estado === "Redacción" ? "rgba(168,85,247,0.1)" : "rgba(59,130,246,0.1)",
+                    color: estado === "Autorizada" ? "#059669" : estado === "Minutada" ? "#92702a" : estado === "Sin Factura" ? "#78716c" : estado === "Redacción" ? "#a855f7" : "#3b82f6",
                   }}>{estado}</span>
                 </div>
               </div>
@@ -1246,7 +1250,9 @@ export default function App() {
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Estado</label>
                 <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11, width: "100%" }} value={estado} onChange={e => setEstado(e.target.value)}>
+                  <option value="Redacción">Redacción</option>
                   <option value="Prevista">Prevista</option>
+                  <option value="Minutada">Minutada</option>
                   <option value="Autorizada">Autorizada</option>
                   <option value="Sin Factura">Sin Factura</option>
                 </select>
@@ -1257,6 +1263,16 @@ export default function App() {
                   <option value="">No consta</option>
                   <option value="superior">Consta superior</option>
                   <option value="inferior">Consta inferior</option>
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 2, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Medio de pago</label>
+                <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11, width: "100%" }} value={medioPago} onChange={e => setMedioPago(e.target.value)}>
+                  <option value="">Sin especificar</option>
+                  <option value="Caja, Euros">Caja, Euros</option>
+                  <option value="CaixaBank">CaixaBank</option>
+                  <option value="Tarjetas">Tarjetas</option>
+                  <option value="Anticipos de clientes">Anticipos de clientes</option>
                 </select>
               </div>
             </div>
@@ -1278,6 +1294,28 @@ export default function App() {
               <input type="checkbox" checked={ley11_2023} onChange={() => setLey11_2023(!ley11_2023)} style={{ accentColor: "#92702a", width: 14, height: 14, cursor: "pointer" }} />
               <span style={{ fontSize: 11.5, color: "#1c1917", fontWeight: 500 }}>Ley 11/2023</span>
               {ley11_2023 && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 500, background: "rgba(124,58,237,0.08)", padding: "2px 8px", borderRadius: 4 }}>Placeholder — sin impacto en cálculo</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notas del asunto + Generar escritura */}
+      {activeSvc && (
+        <div className="full-section">
+          <div className="card" style={{ padding: "16px 18px" }}>
+            <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 9, color: "#a8a29e", display: "block", marginBottom: 4, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>Notas del asunto</label>
+                <textarea className="inp" value={notas} onChange={e => setNotas(e.target.value)} placeholder="Observaciones, instrucciones especiales..." rows={3} style={{ resize: "vertical", fontSize: 12, lineHeight: 1.5, width: "100%" }} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 170, paddingTop: 16 }}>
+                <button onClick={() => alert("Módulo en desarrollo")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "rgba(201,165,90,0.12)", border: "1px solid rgba(201,165,90,0.3)", borderRadius: 8, color: "#c9a55a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  {"\uD83D\uDCC4"} Generar escritura
+                </button>
+                <select className="sel sel-light" style={{ padding: "6px 8px", fontSize: 11 }} defaultValue="">
+                  <option value="" disabled>Elegir modelo...</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
