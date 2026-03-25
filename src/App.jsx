@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { CATEGORIAS_NOTING } from "./notingData";
 
 // ═══════════════════════════════════════════════════════════
@@ -693,17 +693,37 @@ body { margin: 0; background: #f5f5f4; }
 `;
 
 // ═══════════════════════════════════════════════════════════
+// RESOLVE CONCEPT → SERVICE (pure function, outside component)
+// ═══════════════════════════════════════════════════════════
+
+function resolveConceptSvc(c) {
+  const cat = CATEGORIAS_NOTING.find(x => x.id === c.catId);
+  const act = cat?.acts.find(x => x.id === c.actId);
+  const hasV = act?.v?.length > 0;
+  return hasV && c.varIdx >= 0 ? act.v[c.varIdx] : (!hasV ? act : null);
+}
+
+function resolveConceptName(c) {
+  const cat = CATEGORIAS_NOTING.find(x => x.id === c.catId);
+  const act = cat?.acts.find(x => x.id === c.actId);
+  const hasV = act?.v?.length > 0;
+  const variant = hasV && c.varIdx >= 0 ? act.v[c.varIdx] : null;
+  return variant?.n || act?.n || "";
+}
+
+// ═══════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════
 
 export default function App() {
-  const [catId, setCatId] = useState("");
-  const [actId, setActId] = useState("");
-  const [varIdx, setVarIdx] = useState(-1);
+  const [conceptos, setConceptos] = useState([]);
+  const [addingConcepto, setAddingConcepto] = useState(false);
+  const [newConceptCatId, setNewConceptCatId] = useState("");
+  const [newConceptActId, setNewConceptActId] = useState("");
+  const [newConceptVarIdx, setNewConceptVarIdx] = useState(-1);
+  const [newConceptCuantia, setNewConceptCuantia] = useState("");
   const [search, setSearch] = useState("");
   const [inputs, setInputs] = useState({
-    cuantia: "",
-    base_minutable: "",
     folios_matriz: "4", caras_blanco: "0",
     folios_matriz_elec: "0", caras_blanco_elec: "0",
     copias_aut: "1", folios_aut: "4",
@@ -712,10 +732,6 @@ export default function App() {
     copias_elec_sim: "0", folios_elec_sim: "0",
     descuento: "0",
   });
-  const [baseManual, setBaseManual] = useState(false);
-  const [nLotes, setNLotes] = useState(1);
-  const [lotesIguales, setLotesIguales] = useState(true);
-  const [cuantiasLotes, setCuantiasLotes] = useState([]);
   const [matrizElectronica, setMatrizElectronica] = useState(false);
   const [valorRefCatastral, setValorRefCatastral] = useState("");
   const [ley11_2023, setLey11_2023] = useState(false);
@@ -761,8 +777,6 @@ export default function App() {
   const setInput = useCallback((k, v) => {
     setInputs(p => {
       const next = { ...p, [k]: v };
-      // Auto-sync base_minutable from cuantía unless manually edited
-      if (k === "cuantia" && !baseManual) next.base_minutable = v;
       // Auto-recalc Nª Octava when any folios_matriz changes
       if (k === "folios_matriz" || k === "folios_matriz_elec") {
         const fPapel = parseInt(k === "folios_matriz" ? v : p.folios_matriz) || 0;
@@ -775,33 +789,57 @@ export default function App() {
       }
       return next;
     });
-    if (k === "base_minutable") setBaseManual(true);
-  }, [baseManual]);
-  const resyncBase = useCallback(() => { setBaseManual(false); setInputs(p => ({ ...p, base_minutable: p.cuantia })); }, []);
-
-  const handleNLotesChange = useCallback((v) => {
-    const n = Math.max(1, parseInt(v) || 1);
-    setNLotes(n);
-    setCuantiasLotes(prev => {
-      const arr = [...prev];
-      while (arr.length < n) arr.push("");
-      return arr.slice(0, n);
-    });
   }, []);
-  const handleCuantiaLote = useCallback((idx, v) => {
-    setCuantiasLotes(prev => {
-      const arr = [...prev];
-      arr[idx] = v;
-      const suma = arr.reduce((s, x) => s + (parseFloat(x?.replace(/\./g, "").replace(",", ".")) || 0), 0);
-      const sumaStr = suma > 0 ? suma.toFixed(2).replace(".", ",") : "";
-      setInputs(p => {
-        const next = { ...p, cuantia: sumaStr };
-        if (!baseManual) next.base_minutable = sumaStr;
-        return next;
-      });
-      return arr;
-    });
-  }, [baseManual]);
+
+  // ═══ CONCEPT CRUD ═══
+  const addConcepto = useCallback(() => {
+    const cat = CATEGORIAS_NOTING.find(c => c.id === newConceptCatId);
+    const act = cat?.acts.find(a => a.id === newConceptActId);
+    const hasV = act?.v?.length > 0;
+    const svc = hasV && newConceptVarIdx >= 0 ? act.v[newConceptVarIdx] : (!hasV ? act : null);
+    if (!svc) return;
+    const isFirst = conceptos.length === 0;
+    setConceptos(prev => [...prev, {
+      id: Date.now(),
+      catId: newConceptCatId,
+      actId: newConceptActId,
+      varIdx: newConceptVarIdx,
+      cuantia: newConceptCuantia,
+      base_minutable: newConceptCuantia,
+      baseManual: false,
+      nLotes: 1,
+      lotesIguales: true,
+      cuantiasLotes: [],
+    }]);
+    if (isFirst) {
+      setAranc(buildInitialAranc(true));
+      setGsState(buildInitialGastosSuplidos(true, newConceptCatId));
+      setCustomAranc([]);
+      setCustomGastos([]);
+      setCustomSuplidos([]);
+      setArancOpen(true);
+      setGsOpen(true);
+    }
+    setAddingConcepto(false);
+    setNewConceptCatId("");
+    setNewConceptActId("");
+    setNewConceptVarIdx(-1);
+    setNewConceptCuantia("");
+  }, [newConceptCatId, newConceptActId, newConceptVarIdx, newConceptCuantia, conceptos.length]);
+
+  const removeConcepto = useCallback((id) => {
+    setConceptos(prev => prev.filter(c => c.id !== id));
+  }, []);
+
+  const updateConcepto = useCallback((id, field, value) => {
+    setConceptos(prev => prev.map(c => {
+      if (c.id !== id) return c;
+      const next = { ...c, [field]: value };
+      if (field === "cuantia" && !c.baseManual) next.base_minutable = value;
+      if (field === "base_minutable") next.baseManual = true;
+      return next;
+    }));
+  }, []);
 
   const toggleAranc = useCallback((id) => setAranc(p => ({ ...p, [id]: { ...p[id], checked: !p[id].checked } })), []);
   const setArancFolios = useCallback((id, folios) => setAranc(p => ({ ...p, [id]: { ...p[id], folios: parseInt(folios) || 0 } })), []);
@@ -839,32 +877,28 @@ export default function App() {
     setGsState(p => ({ ...p, suplidos: { ...p.suplidos, [id]: { ...p.suplidos[id], coste, modificado: false } } }));
   }, [inputs.folios_matriz, inputs.folios_matriz_elec]);
   const restablecerTodosGastos = useCallback(() => {
-    setGsState(buildInitialGastosSuplidos(true, catId));
+    const firstCatId = conceptos.length > 0 ? conceptos[0].catId : "";
+    setGsState(buildInitialGastosSuplidos(true, firstCatId));
     setCustomGastos([]);
     setCustomSuplidos([]);
-  }, [catId]);
+  }, [conceptos]);
 
-  const currentCat = CATEGORIAS_NOTING.find(c => c.id === catId);
-  const currentAct = currentCat?.acts.find(a => a.id === actId);
-  const hasVariants = currentAct?.v?.length > 0;
-  const currentVariant = hasVariants && varIdx >= 0 ? currentAct.v[varIdx] : null;
-  const activeSvc = currentVariant || (currentAct && !hasVariants ? currentAct : null);
-  const tipoCalculo = activeSvc ? getTipoCalculo(activeSvc) : null;
-  const esLoteable = catId === "07" || catId === "11";
+  const hasConceptos = conceptos.length > 0;
+  const firstConcepto = hasConceptos ? conceptos[0] : null;
+  const firstSvc = firstConcepto ? resolveConceptSvc(firstConcepto) : null;
+  const firstTipoCalculo = firstSvc ? getTipoCalculo(firstSvc) : null;
+  const firstDisplayName = firstConcepto ? resolveConceptName(firstConcepto) : "";
 
-  const prevActiveSvcRef = useRef(null);
-  useEffect(() => {
-    if (activeSvc && activeSvc !== prevActiveSvcRef.current) {
-      setAranc(buildInitialAranc(true));
-      setGsState(buildInitialGastosSuplidos(true, catId));
-      setCustomAranc([]);
-      setCustomGastos([]);
-      setCustomSuplidos([]);
-      setArancOpen(true);
-      setGsOpen(true);
-    }
-    prevActiveSvcRef.current = activeSvc;
-  }, [activeSvc, catId]);
+  // Derived values for add form
+  const newConceptCat = CATEGORIAS_NOTING.find(c => c.id === newConceptCatId);
+  const newConceptAct = newConceptCat?.acts.find(a => a.id === newConceptActId);
+  const newConceptHasVariants = newConceptAct?.v?.length > 0;
+  const newConceptSvc = (() => {
+    if (!newConceptAct) return null;
+    const hasV = newConceptAct.v?.length > 0;
+    return hasV && newConceptVarIdx >= 0 ? newConceptAct.v[newConceptVarIdx] : (!hasV ? newConceptAct : null);
+  })();
+  const newConceptTipo = newConceptSvc ? getTipoCalculo(newConceptSvc) : null;
 
   const searchResults = useMemo(() => {
     if (!search.trim() || search.length < 2) return null;
@@ -905,9 +939,9 @@ export default function App() {
   }, [gsState, customGastos, customSuplidos]);
 
   const calc = useMemo(() => {
-    if (!activeSvc) return null;
-    const tipo = getTipoCalculo(activeSvc);
-    const baseMin = parseFloat(inputs.base_minutable?.replace(/\./g, "").replace(",", ".")) || 0;
+    if (conceptos.length === 0) return null;
+
+    // Parse shared inputs
     const folMat = parseInt(inputs.folios_matriz) || 0;
     const carasBlanco = Math.max(0, parseInt(inputs.caras_blanco) || 0);
     const folMatElec = parseInt(inputs.folios_matriz_elec) || 0;
@@ -921,44 +955,57 @@ export default function App() {
     const copElecSim = parseInt(inputs.copias_elec_sim) || 0;
     const folElecSim = parseInt(inputs.folios_elec_sim) || 0;
     const descPct = Math.min(100, Math.max(0, parseFloat(inputs.descuento) || 0));
-    // All arithmetic in CENTS (integers) to eliminate floating-point errors
-    const rlPct = activeSvc.rl || 0;
-    const lotes = esLoteable && nLotes > 1 ? nLotes : 1;
-    const r = { honorarios: 0, honorarios_brutos_ref: 0, reduccion_pct: 0, rl_pct: 0, n_lotes: lotes, hon_por_lote: 0, honorarios_netos: 0, copias_aut: 0, copias_sim: 0, copias_elec_aut: 0, copias_elec_sim: 0, n7_papel: 0, n7_papel_caras: 0, n7_elec: 0, n7_elec_caras: 0, folios_matriz: 0, arancelarios_adicionales: 0, derechos: 0, descuento_pct: descPct, descuento_importe: 0, gastos: 0, suplidos: 0, base_iva: 0, iva: 0, derechos_exentos: 0, base_irpf: 0, irpf: 0, total: 0, liquido: 0, aplicaIva: activeSvc.iv };
 
-    // 1) Compute each line item → cents (integer)
-    let cHon = 0, cHonNeto = 0;
-    switch (tipo) {
-      case "cuantia": {
-        const cuantiaPorLote = baseMin / lotes;
-        const honPorLote = calcEscala(cuantiaPorLote);
-        cHon = toCents(honPorLote * lotes);
-        r.hon_por_lote = honPorLote;
-        r.reduccion_pct = activeSvc.r * 100;
-        r.rl_pct = rlPct * 100;
-        cHonNeto = Math.round(cHon * (1 - activeSvc.r) * (1 - rlPct));
-        break;
+    // Calculate per-concept honorarios
+    const conceptCalcs = conceptos.map(c => {
+      const svc = resolveConceptSvc(c);
+      if (!svc) return { cHon: 0, cHonNeto: 0, tipo: null, svc: null, name: "", rl_pct: 0, reduccion_pct: 0, n_lotes: 1, hon_por_lote: 0, honorarios: 0, honorarios_netos: 0, aplicaIva: true };
+      const tipo = getTipoCalculo(svc);
+      const baseMin = parseFloat(c.base_minutable?.replace(/\./g, "").replace(",", ".")) || 0;
+      const rlPct = svc.rl || 0;
+      const esLot = (c.catId === "07" || c.catId === "11");
+      const lotes = esLot && c.nLotes > 1 ? c.nLotes : 1;
+
+      let cHon = 0, cHonNeto = 0, honPorLote = 0;
+      switch (tipo) {
+        case "cuantia": {
+          const cuantiaPorLote = baseMin / lotes;
+          honPorLote = calcEscala(cuantiaPorLote);
+          cHon = toCents(honPorLote * lotes);
+          cHonNeto = Math.round(cHon * (1 - svc.r) * (1 - rlPct));
+          break;
+        }
+        case "arancel_fijo": cHon = toCents(svc.f); cHonNeto = cHon; break;
+        case "fijo": cHon = toCents(svc.f); cHonNeto = cHon; break;
+        case "sin_cuantia": cHon = toCents(TARIFAS.doc_sin_cuantia); cHonNeto = cHon; break;
+        case "gratuito": cHon = 0; cHonNeto = 0; break;
       }
-      case "arancel_fijo": cHon = toCents(activeSvc.f); cHonNeto = cHon; break;
-      case "fijo": cHon = toCents(activeSvc.f); cHonNeto = cHon; break;
-      case "sin_cuantia": cHon = toCents(TARIFAS.doc_sin_cuantia); cHonNeto = cHon; break;
-      case "gratuito": cHon = 0; cHonNeto = 0; break;
-    }
+
+      const name = resolveConceptName(c);
+
+      return { cHon, cHonNeto, tipo, svc, name, rl_pct: rlPct * 100, reduccion_pct: svc.r * 100, n_lotes: lotes, hon_por_lote: honPorLote, honorarios: fromCents(cHon), honorarios_netos: fromCents(cHonNeto), aplicaIva: svc.iv };
+    });
+
+    const totalCHon = conceptCalcs.reduce((s, c) => s + c.cHon, 0);
+    const totalCHonNeto = conceptCalcs.reduce((s, c) => s + c.cHonNeto, 0);
+
+    // Use first concept for IVA flag
+    const aplicaIva = conceptCalcs[0]?.aplicaIva ?? true;
+
+    // Shared items (copias, N7, arancelarios)
     const cCopAut = toCents(calcCopiaAut(folAut, copAut));
     const cCopSim = toCents(calcCopiaSim(folSim, copSim));
     const cCopElecAut = toCents(calcCopiaAut(folElecAut, copElecAut));
     const cCopElecSim = toCents(calcCopiaSim(folElecSim, copElecSim));
-    // Nº7 — Folios de matriz (papel)
     const n7Papel = calcN7(folMat, carasBlanco);
     const cN7Papel = toCents(n7Papel.importe);
-    // Nº7 — Folios de matriz (electrónica)
     const n7Elec = matrizElectronica ? calcN7(folMatElec, carasBlancoElec) : { carasEscritas: 0, carasMinutables: 0, importe: 0 };
     const cN7Elec = toCents(n7Elec.importe);
     const cFolMat = cN7Papel + cN7Elec;
     const cAranc = toCents(arancTotals.suma);
 
-    // 2) Sum in cents (pure integer addition — no FP error)
-    const cDerechos = cHonNeto + cCopAut + cCopSim + cCopElecAut + cCopElecSim + cFolMat + cAranc;
+    // Sum
+    const cDerechos = totalCHonNeto + cCopAut + cCopSim + cCopElecAut + cCopElecSim + cFolMat + cAranc;
     const cDescuento = Math.round(cDerechos * descPct / 100);
     const cDerechosDesc = cDerechos - cDescuento;
 
@@ -966,44 +1013,40 @@ export default function App() {
     const cSuplidos = toCents(gsTotals.suplidos);
 
     let cBaseIva, cDerechosExentos = 0;
-    if (!r.aplicaIva) {
+    if (!aplicaIva) {
       cDerechosExentos = cDerechosDesc;
       cBaseIva = cGastos;
     } else {
       cBaseIva = cDerechosDesc + cGastos;
     }
     const cIva = Math.round(cBaseIva * TARIFAS.iva / 100);
-    const cIrpf = Math.round(cHonNeto * TARIFAS.irpf / 100);
+    const cIrpf = Math.round(totalCHonNeto * TARIFAS.irpf / 100);
     const cTotal = cDerechosDesc + cGastos + cSuplidos + cIva;
     const cLiquido = cTotal - cIrpf;
 
-    // 3) Convert cents → euros for display
-    r.honorarios = fromCents(cHon);
-    r.honorarios_netos = fromCents(cHonNeto);
-    r.copias_aut = fromCents(cCopAut);
-    r.copias_sim = fromCents(cCopSim);
-    r.copias_elec_aut = fromCents(cCopElecAut);
-    r.copias_elec_sim = fromCents(cCopElecSim);
-    r.n7_papel = fromCents(cN7Papel);
-    r.n7_papel_caras = n7Papel.carasMinutables;
-    r.n7_elec = fromCents(cN7Elec);
-    r.n7_elec_caras = n7Elec.carasMinutables;
-    r.folios_matriz = fromCents(cFolMat);
-    r.arancelarios_adicionales = fromCents(cAranc);
-    r.honorarios_brutos_ref = fromCents(cHon + cCopAut + cCopSim + cCopElecAut + cCopElecSim + cFolMat + cAranc);
-    r.derechos = fromCents(cDerechos);
-    r.descuento_importe = fromCents(cDescuento);
-    r.gastos = fromCents(cGastos);
-    r.suplidos = fromCents(cSuplidos);
-    r.derechos_exentos = fromCents(cDerechosExentos);
-    r.base_iva = fromCents(cBaseIva);
-    r.iva = fromCents(cIva);
-    r.base_irpf = fromCents(cHonNeto);
-    r.irpf = fromCents(cIrpf);
-    r.total = fromCents(cTotal);
-    r.liquido = fromCents(cLiquido);
-    return r;
-  }, [activeSvc, inputs, arancTotals, gsTotals, matrizElectronica, nLotes, esLoteable]);
+    return {
+      conceptos: conceptCalcs,
+      honorarios: fromCents(totalCHon),
+      honorarios_netos: fromCents(totalCHonNeto),
+      copias_aut: fromCents(cCopAut), copias_sim: fromCents(cCopSim),
+      copias_elec_aut: fromCents(cCopElecAut), copias_elec_sim: fromCents(cCopElecSim),
+      n7_papel: fromCents(cN7Papel), n7_papel_caras: n7Papel.carasMinutables,
+      n7_elec: fromCents(cN7Elec), n7_elec_caras: n7Elec.carasMinutables,
+      folios_matriz: fromCents(cFolMat),
+      arancelarios_adicionales: fromCents(cAranc),
+      derechos: fromCents(cDerechos),
+      descuento_pct: descPct, descuento_importe: fromCents(cDescuento),
+      gastos: fromCents(cGastos), suplidos: fromCents(cSuplidos),
+      aplicaIva,
+      derechos_exentos: fromCents(cDerechosExentos),
+      base_iva: fromCents(cBaseIva),
+      iva: fromCents(cIva),
+      base_irpf: fromCents(totalCHonNeto),
+      irpf: fromCents(cIrpf),
+      total: fromCents(cTotal),
+      liquido: fromCents(cLiquido),
+    };
+  }, [conceptos, inputs, arancTotals, gsTotals, matrizElectronica]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -1011,20 +1054,29 @@ export default function App() {
     return { total, cats: CATEGORIAS_NOTING.length, codes: CATEGORIAS_NOTING.reduce((s, c) => s + c.acts.length, 0) };
   }, []);
 
-  const handleSearchSelect = (item) => { setCatId(item.catId); setActId(item.actId); setVarIdx(item.varIdx ?? -1); setSearch(""); };
-  const displayName = currentVariant?.n || currentAct?.n || "";
+  const handleSearchSelect = (item) => {
+    setNewConceptCatId(item.catId);
+    setNewConceptActId(item.actId);
+    setNewConceptVarIdx(item.varIdx ?? -1);
+    setNewConceptCuantia("");
+    setAddingConcepto(true);
+    setSearch("");
+  };
+  const displayName = firstDisplayName;
 
   const handleRestablecerPreset = useCallback(() => {
+    const firstCatId = conceptos.length > 0 ? conceptos[0].catId : "";
     setAranc(buildInitialAranc(true));
-    setGsState(buildInitialGastosSuplidos(true, catId));
+    setGsState(buildInitialGastosSuplidos(true, firstCatId));
     setCustomAranc([]); setCustomGastos([]); setCustomSuplidos([]);
     setArancOpen(true); setGsOpen(true);
-  }, [catId]);
+  }, [conceptos]);
 
   const handleLimpiarTodo = useCallback(() => {
-    setCatId(""); setActId(""); setVarIdx(-1); setSearch("");
-    setInputs({ cuantia: "", base_minutable: "", folios_matriz: "4", caras_blanco: "0", folios_matriz_elec: "0", caras_blanco_elec: "0", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
-    setBaseManual(false); setNLotes(1); setLotesIguales(true); setCuantiasLotes([]);
+    setConceptos([]); setAddingConcepto(false);
+    setNewConceptCatId(""); setNewConceptActId(""); setNewConceptVarIdx(-1); setNewConceptCuantia("");
+    setSearch("");
+    setInputs({ folios_matriz: "4", caras_blanco: "0", folios_matriz_elec: "0", caras_blanco_elec: "0", copias_aut: "1", folios_aut: "4", copias_sim: "1", folios_sim: "4", copias_elec_aut: "0", folios_elec_aut: "0", copias_elec_sim: "0", folios_elec_sim: "0", descuento: "0" });
     setMatrizElectronica(false); setValorRefCatastral(""); setLey11_2023(false);
     setAranc(buildInitialAranc(false)); setArancOpen(true);
     setGsState(buildInitialGastosSuplidos(false)); setGsOpen(true);
@@ -1035,30 +1087,26 @@ export default function App() {
   }, []);
 
   const handleCopiarDesglose = useCallback(async () => {
-    if (!calc || !activeSvc) return;
+    if (!calc || conceptos.length === 0) return;
     const L = [];
     L.push(`DESGLOSE - ${displayName}`);
-    if (nProtocolo) L.push(`Nº Protocolo: ${nProtocolo}`);
+    if (nProtocolo) L.push(`N\u00ba Protocolo: ${nProtocolo}`);
     L.push(`Estado: ${estado}`);
     if (medioPago) L.push(`Medio de pago: ${medioPago}`);
     if (notas.trim()) L.push(`Notas: ${notas.trim()}`);
     L.push("");
-    if (tipoCalculo === "cuantia" && calc.rl_pct > 0) L.push(`Sin reducci\u00f3n (ref.):        ${fmt(calc.honorarios_brutos_ref)} \u20ac`);
-    if (tipoCalculo === "cuantia") {
-      L.push(`Honorarios brutos (N\u00ba 2):  ${fmt(calc.honorarios)} \u20ac`);
-      if (calc.n_lotes > 1) L.push(`  (${calc.n_lotes} lotes \u00d7 ${fmt(calc.hon_por_lote)}\u20ac/lote)`);
-      if (calc.rl_pct > 0) L.push(`Reducci\u00f3n (-${calc.rl_pct}%): ${fmt(-(calc.honorarios - calc.honorarios_netos))} \u20ac`);
-    } else if (tipoCalculo === "fijo") L.push(`Tarifa fija (N\u00ba 1):         ${fmt(calc.honorarios)} \u20ac`);
-    else if (tipoCalculo === "arancel_fijo") L.push(`Arancel fijo legal:          ${fmt(calc.honorarios)} \u20ac`);
-    else if (tipoCalculo === "sin_cuantia") L.push(`Doc. sin cuant\u00eda (N\u00ba 1):    ${fmt(calc.honorarios)} \u20ac`);
-    else L.push("Gratuito: 0,00 \u20ac");
-    L.push(`Honorarios netos:            ${fmt(calc.honorarios_netos)} \u20ac`);
+    // List each concept
+    calc.conceptos.forEach(cc => {
+      L.push(`${cc.name}: ${fmt(cc.honorarios_netos)} \u20ac`);
+      if (cc.n_lotes > 1) L.push(`  (${cc.n_lotes} lotes \u00d7 ${fmt(cc.hon_por_lote)}\u20ac/lote)`);
+    });
+    L.push(`Honorarios netos (total):    ${fmt(calc.honorarios_netos)} \u20ac`);
     if (calc.copias_aut > 0) L.push(`Copias autorizadas:          ${fmt(calc.copias_aut)} \u20ac`);
     if (calc.copias_sim > 0) L.push(`Copias simples:              ${fmt(calc.copias_sim)} \u20ac`);
     if (calc.copias_elec_aut > 0) L.push(`Copias elec. autorizadas:    ${fmt(calc.copias_elec_aut)} \u20ac`);
     if (calc.copias_elec_sim > 0) L.push(`Copias elec. simples:        ${fmt(calc.copias_elec_sim)} \u20ac`);
-    if (calc.n7_papel > 0) L.push(`Nº7 matriz (${calc.n7_papel_caras} caras min.): ${fmt(calc.n7_papel)} \u20ac`);
-    if (calc.n7_elec > 0) L.push(`Nº7 matriz elec. (${calc.n7_elec_caras} caras min.): ${fmt(calc.n7_elec)} \u20ac`);
+    if (calc.n7_papel > 0) L.push(`N\u00ba7 matriz (${calc.n7_papel_caras} caras min.): ${fmt(calc.n7_papel)} \u20ac`);
+    if (calc.n7_elec > 0) L.push(`N\u00ba7 matriz elec. (${calc.n7_elec_caras} caras min.): ${fmt(calc.n7_elec)} \u20ac`);
     if (calc.arancelarios_adicionales > 0) L.push(`Arancelarios adicionales:    ${fmt(calc.arancelarios_adicionales)} \u20ac`);
     customAranc.forEach(c => L.push(`  ${c.nombre}: ${fmt(c.coste)} \u20ac`));
     L.push("---");
@@ -1087,7 +1135,7 @@ export default function App() {
       intervinientes.forEach(iv => L.push(`  ${iv.tipo}: ${iv.nombre} ${iv.apellidos}${iv.dni ? ` (${iv.dni})` : ""}${iv.nr ? " [NR]" : ""}`));
     }
     try { await navigator.clipboard.writeText(L.join("\n")); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
-  }, [calc, activeSvc, displayName, tipoCalculo, matrizElectronica, nProtocolo, estado, medioPago, notas, customAranc, customGastos, customSuplidos, intervinientes]);
+  }, [calc, conceptos, displayName, matrizElectronica, nProtocolo, estado, medioPago, notas, customAranc, customGastos, customSuplidos, intervinientes]);
 
   // ═══════════════════════════════════════════════════════════
   // RENDER
@@ -1107,80 +1155,74 @@ export default function App() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn btn-ghost" onClick={handleLimpiarTodo} style={{ fontSize: 11 }}>Limpiar</button>
-              {activeSvc && <button className="btn btn-accent" onClick={handleRestablecerPreset} style={{ fontSize: 11 }}>Restablecer preset</button>}
+              {hasConceptos && <button className="btn btn-accent" onClick={handleRestablecerPreset} style={{ fontSize: 11 }}>Restablecer preset</button>}
             </div>
           </div>
 
-          {/* Campos en fila — estilo Notinn */}
-          <div className="header-fields">
-            <div className="header-field">
-              <span className="lbl">Categoría</span>
-              <select className="sel" value={catId} onChange={e => { setCatId(e.target.value); setActId(""); setVarIdx(-1); }}>
-                <option value="">Seleccionar...</option>
-                {CATEGORIAS_NOTING.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name} ({c.acts.length})</option>)}
-              </select>
+          {/* Conceptos del asunto */}
+          {conceptos.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="lbl" style={{ marginBottom: 6 }}>Conceptos del asunto ({conceptos.length})</div>
+              {conceptos.map(c => {
+                const svc = resolveConceptSvc(c);
+                const tipo = svc ? getTipoCalculo(svc) : null;
+                const name = resolveConceptName(c);
+                const cc = calc?.conceptos?.find(x => x.name === name);
+                return (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "rgba(255,255,255,0.06)", borderRadius: 6, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: 12, color: "#f1f5f9" }}>{name}</span>
+                    {tipo === "cuantia" && <span className="mono" style={{ fontSize: 11, color: "#94a3b8" }}>{c.cuantia ? c.cuantia + "\u20ac" : ""}</span>}
+                    {cc && <span className="mono" style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>{fmt(cc.honorarios_netos)}{"\u20ac"}</span>}
+                    <button className="btn-remove" style={{ color: "#94a3b8" }} onClick={() => removeConcepto(c.id)}>&times;</button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="header-field wide">
-              <span className="lbl">Concepto notarial {currentCat ? `(${currentCat.acts.length})` : ""}</span>
-              <select className="sel" value={actId} onChange={e => { setActId(e.target.value); setVarIdx(-1); }} disabled={!currentCat}>
-                <option value="">Seleccionar...</option>
-                {currentCat?.acts.map(a => <option key={a.id} value={a.id}>[{a.id}] {a.n}{a.v ? ` (${a.v.length} var.)` : ""}</option>)}
-              </select>
-            </div>
-            {hasVariants && (
-              <div className="header-field">
-                <span className="lbl">Variante ({currentAct.v.length})</span>
-                <select className="sel" value={varIdx} onChange={e => setVarIdx(parseInt(e.target.value))}>
-                  <option value={-1}>Seleccionar...</option>
-                  {currentAct.v.map((v, i) => <option key={i} value={i}>{v.l}</option>)}
-                </select>
-              </div>
-            )}
-            {tipoCalculo === "cuantia" && (
-              <>
-                {esLoteable && (
+          )}
+
+          {/* Add concept form */}
+          {addingConcepto && (
+            <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+              <div className="header-fields">
+                <div className="header-field">
+                  <span className="lbl">Categoría</span>
+                  <select className="sel" value={newConceptCatId} onChange={e => { setNewConceptCatId(e.target.value); setNewConceptActId(""); setNewConceptVarIdx(-1); }}>
+                    <option value="">Seleccionar...</option>
+                    {CATEGORIAS_NOTING.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name} ({c.acts.length})</option>)}
+                  </select>
+                </div>
+                <div className="header-field wide">
+                  <span className="lbl">Concepto notarial {newConceptCat ? `(${newConceptCat.acts.length})` : ""}</span>
+                  <select className="sel" value={newConceptActId} onChange={e => { setNewConceptActId(e.target.value); setNewConceptVarIdx(-1); }} disabled={!newConceptCat}>
+                    <option value="">Seleccionar...</option>
+                    {newConceptCat?.acts.map(a => <option key={a.id} value={a.id}>[{a.id}] {a.n}{a.v ? ` (${a.v.length} var.)` : ""}</option>)}
+                  </select>
+                </div>
+                {newConceptHasVariants && (
                   <div className="header-field">
-                    <span className="lbl">Nº de lotes</span>
-                    <input type="number" min="1" className="inp inp-sm" value={nLotes} onChange={e => handleNLotesChange(e.target.value)} style={{ width: 70 }} />
+                    <span className="lbl">Variante ({newConceptAct.v.length})</span>
+                    <select className="sel" value={newConceptVarIdx} onChange={e => setNewConceptVarIdx(parseInt(e.target.value))}>
+                      <option value={-1}>Seleccionar...</option>
+                      {newConceptAct.v.map((v, i) => <option key={i} value={i}>{v.l}</option>)}
+                    </select>
                   </div>
                 )}
-                {esLoteable && nLotes > 1 && (
-                  <div className="header-field" style={{ alignSelf: "center" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#1c1917", cursor: "pointer" }}>
-                      <input type="checkbox" checked={lotesIguales} onChange={() => setLotesIguales(!lotesIguales)} style={{ accentColor: "#92702a", width: 13, height: 13 }} />
-                      ¿Son lotes iguales?
-                    </label>
-                  </div>
-                )}
-                {esLoteable && nLotes > 1 && !lotesIguales ? (
-                  <>
-                    {cuantiasLotes.slice(0, nLotes).map((v, i) => (
-                      <div className="header-field" key={i}>
-                        <span className="lbl">Lote {i + 1} ({"\u20ac"})</span>
-                        <input className="inp inp-mono" value={v} onChange={e => handleCuantiaLote(i, e.target.value)} placeholder="0" style={{ fontWeight: 600 }} />
-                      </div>
-                    ))}
-                    <div className="header-field">
-                      <span className="lbl" style={{ fontWeight: 600, color: "#92702a" }}>Cuantía total ({"\u20ac"})</span>
-                      <input className="inp inp-mono" value={inputs.cuantia} readOnly style={{ fontWeight: 600, background: "#fafaf9", color: "#78716c" }} />
-                    </div>
-                  </>
-                ) : (
+                {newConceptTipo === "cuantia" && (
                   <div className="header-field">
                     <span className="lbl">Cuantía ({"\u20ac"})</span>
-                    <input className="inp inp-mono" value={inputs.cuantia} onChange={e => setInput("cuantia", e.target.value)} placeholder="200.000" style={{ fontWeight: 600 }} />
+                    <input className="inp inp-mono" value={newConceptCuantia} onChange={e => setNewConceptCuantia(e.target.value)} placeholder="200.000" style={{ fontWeight: 600 }} />
                   </div>
                 )}
-                <div className="header-field">
-                  <span className="lbl" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    Base minutable ({"\u20ac"})
-                    {baseManual && <button onClick={resyncBase} style={{ background: "rgba(251,191,36,0.3)", border: "none", borderRadius: 4, color: "#fbbf24", fontSize: 8, padding: "1px 5px", cursor: "pointer", fontWeight: 700 }} title="Re-sincronizar con cuantía">{"\u21BB"}</button>}
-                  </span>
-                  <input className="inp inp-mono" value={inputs.base_minutable} onChange={e => setInput("base_minutable", e.target.value)} placeholder="200.000" style={{ fontWeight: 600, borderColor: baseManual ? "rgba(251,191,36,0.5)" : undefined }} />
-                </div>
-              </>
-            )}
-          </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <button className="btn btn-accent" onClick={addConcepto}>Añadir</button>
+                <button className="btn btn-ghost" onClick={() => setAddingConcepto(false)}>Cancelar</button>
+              </div>
+            </div>
+          )}
+          {!addingConcepto && (
+            <button className="btn btn-accent" style={{ width: "100%", marginBottom: 10 }} onClick={() => setAddingConcepto(true)}>+ Añadir concepto</button>
+          )}
 
           {/* Buscador */}
           <div style={{ position: "relative", marginTop: 10 }}>
@@ -1204,7 +1246,7 @@ export default function App() {
       {/* ═══ FULL-WIDTH SECTIONS (3-5) ═══ */}
 
       {/* Badge de tipo de operación */}
-      {activeSvc && (
+      {hasConceptos && (
         <div className="full-section">
           <div style={{
             background: "rgba(201,165,90,0.15)",
@@ -1218,13 +1260,13 @@ export default function App() {
             textTransform: "uppercase",
             textAlign: "center",
           }}>
-            {currentVariant?.l || currentVariant?.n || currentAct?.n || ""}
+            {resolveConceptName(conceptos[0])}
           </div>
         </div>
       )}
 
       {/* Ficha de operación */}
-      {activeSvc && (
+      {hasConceptos && (
         <div className="full-section">
           <div className="card" style={{ padding: "16px 18px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 12 }}>
@@ -1239,9 +1281,11 @@ export default function App() {
                   }}>{estado}</span>
                 </div>
               </div>
-              <span className="badge-tipo" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a", border: "1px solid rgba(146,112,42,0.2)" }}>
-                {getTipoLabel(tipoCalculo)}
-              </span>
+              {firstTipoCalculo && (
+                <span className="badge-tipo" style={{ background: "rgba(146,112,42,0.1)", color: "#92702a", border: "1px solid rgba(146,112,42,0.2)" }}>
+                  {getTipoLabel(firstTipoCalculo)}
+                </span>
+              )}
             </div>
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1 }}>
@@ -1283,13 +1327,13 @@ export default function App() {
               </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "5px 16px", fontSize: 11.5, color: "#78716c" }}>
-              <span>SIGNO: <b style={{ color: "#44403c" }}>{currentAct?.id}</b></span>
-              {tipoCalculo === "cuantia" && activeSvc.r > 0 && <span>Reducción: <b style={{ color: "#92702a" }}>{(activeSvc.r * 100).toFixed(2)}%</b></span>}
-              {tipoCalculo === "cuantia" && activeSvc.r > 0 && <span>Red. total: <b style={{ color: "#92702a" }}>{((1 - (1 - activeSvc.r) * 0.95) * 100).toFixed(2)}%</b></span>}
-              <span>IVA: <b style={{ color: "#44403c" }}>{activeSvc.iv ? "Sí" : "No"}</b></span>
-              <span>M. pago: <b style={{ color: activeSvc.mp === "Si" ? "#92702a" : "#44403c" }}>{activeSvc.mp === "Si" ? "Obligatorio" : activeSvc.mp === "Op" ? "Opcional" : "No"}</b></span>
-              {activeSvc.cl && <span>Clave reg.: <b style={{ color: "#44403c" }}>{activeSvc.cl}</b></span>}
-              {activeSvc.f > 0 && tipoCalculo !== "cuantia" && <span>Tarifa fija: <b style={{ color: "#92702a" }}>{fmt(activeSvc.f)} {"\u20ac"}</b></span>}
+              <span>SIGNO: <b style={{ color: "#44403c" }}>{conceptos.map(c => c.actId).join(", ")}</b></span>
+              {firstSvc && firstTipoCalculo === "cuantia" && firstSvc.r > 0 && <span>Reducción: <b style={{ color: "#92702a" }}>{(firstSvc.r * 100).toFixed(2)}%</b></span>}
+              {firstSvc && firstTipoCalculo === "cuantia" && firstSvc.r > 0 && <span>Red. total: <b style={{ color: "#92702a" }}>{((1 - (1 - firstSvc.r) * 0.95) * 100).toFixed(2)}%</b></span>}
+              {firstSvc && <span>IVA: <b style={{ color: "#44403c" }}>{firstSvc.iv ? "Sí" : "No"}</b></span>}
+              {firstSvc && <span>M. pago: <b style={{ color: firstSvc.mp === "Si" ? "#92702a" : "#44403c" }}>{firstSvc.mp === "Si" ? "Obligatorio" : firstSvc.mp === "Op" ? "Opcional" : "No"}</b></span>}
+              {firstSvc?.cl && <span>Clave reg.: <b style={{ color: "#44403c" }}>{firstSvc.cl}</b></span>}
+              {firstSvc && firstSvc.f > 0 && firstTipoCalculo !== "cuantia" && <span>Tarifa fija: <b style={{ color: "#92702a" }}>{fmt(firstSvc.f)} {"\u20ac"}</b></span>}
             </div>
             <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
               <input type="checkbox" checked={ley11_2023} onChange={() => setLey11_2023(!ley11_2023)} style={{ accentColor: "#92702a", width: 14, height: 14, cursor: "pointer" }} />
@@ -1301,7 +1345,7 @@ export default function App() {
       )}
 
       {/* Notas del asunto + Generar escritura */}
-      {activeSvc && (
+      {hasConceptos && (
         <div className="full-section">
           <div className="card" style={{ padding: "16px 18px" }}>
             <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
@@ -1323,7 +1367,7 @@ export default function App() {
       )}
 
       {/* Intervinientes */}
-      {activeSvc && (
+      {hasConceptos && (
         <div className="full-section">
           <div className="card" style={{ overflow: "hidden" }}>
             <button className="collapse-btn" onClick={() => setIntervOpen(!intervOpen)}>
@@ -1367,20 +1411,20 @@ export default function App() {
         <div className="col-left">
 
           {/* Datos — folios y copias */}
-          {activeSvc && (
+          {hasConceptos && (
             <div className="card" style={{ padding: "16px 18px" }}>
               <div style={{ fontSize: 10, fontWeight: 600, color: "#78716c", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Datos de la operación</div>
 
-              {tipoCalculo === "arancel_fijo" && (
-                <div style={{ padding: "8px 12px", background: "rgba(146,112,42,0.06)", border: "1px solid rgba(146,112,42,0.15)", borderRadius: 8, fontSize: 12, color: "#92702a", marginBottom: 12 }}>Arancel fijo: <b>{fmt(activeSvc.f)} {"\u20ac"}</b></div>
+              {firstTipoCalculo === "arancel_fijo" && firstSvc && (
+                <div style={{ padding: "8px 12px", background: "rgba(146,112,42,0.06)", border: "1px solid rgba(146,112,42,0.15)", borderRadius: 8, fontSize: 12, color: "#92702a", marginBottom: 12 }}>Arancel fijo: <b>{fmt(firstSvc.f)} {"\u20ac"}</b></div>
               )}
-              {tipoCalculo === "gratuito" && (
+              {firstTipoCalculo === "gratuito" && (
                 <div style={{ padding: "8px 12px", background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.12)", borderRadius: 8, fontSize: 12, color: "#059669", marginBottom: 12 }}>Gratuito (exento de arancel)</div>
               )}
-              {tipoCalculo === "fijo" && (
-                <div style={{ padding: "8px 12px", background: "rgba(146,112,42,0.06)", border: "1px solid rgba(146,112,42,0.15)", borderRadius: 8, fontSize: 12, color: "#92702a", marginBottom: 12 }}>Tarifa fija (Nº 1): <b>{fmt(activeSvc.f)} {"\u20ac"}</b></div>
+              {firstTipoCalculo === "fijo" && firstSvc && (
+                <div style={{ padding: "8px 12px", background: "rgba(146,112,42,0.06)", border: "1px solid rgba(146,112,42,0.15)", borderRadius: 8, fontSize: 12, color: "#92702a", marginBottom: 12 }}>Tarifa fija (Nº 1): <b>{fmt(firstSvc.f)} {"\u20ac"}</b></div>
               )}
-              {tipoCalculo === "sin_cuantia" && (
+              {firstTipoCalculo === "sin_cuantia" && (
                 <div style={{ padding: "8px 12px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.12)", borderRadius: 8, fontSize: 12, color: "#6366f1", marginBottom: 12 }}>Sin cuantía: <b>{fmt(TARIFAS.doc_sin_cuantia)} {"\u20ac"}</b></div>
               )}
 
@@ -1447,7 +1491,7 @@ export default function App() {
           )}
 
           {/* Arancelarios */}
-          {activeSvc && (
+          {hasConceptos && (
             <div className="card" style={{ overflow: "hidden" }}>
               <button className="collapse-btn" onClick={() => setArancOpen(!arancOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1551,7 +1595,7 @@ export default function App() {
           )}
 
           {/* Gastos y Suplidos */}
-          {activeSvc && (
+          {hasConceptos && (
             <div className="card" style={{ overflow: "hidden" }}>
               <button className="collapse-btn" onClick={() => setGsOpen(!gsOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1633,7 +1677,7 @@ export default function App() {
           )}
 
           {/* Empty */}
-          {!activeSvc && (
+          {!hasConceptos && (
             <div className="card" style={{ padding: "50px 20px", textAlign: "center" }}>
               <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.1 }}>{"\u2696\uFE0F"}</div>
               <p style={{ color: "#78716c", fontSize: 13, fontWeight: 500 }}>Selecciona categoría → concepto → variante</p>
@@ -1652,26 +1696,16 @@ export default function App() {
             <div className="factura-body">
               {calc ? (
                 <>
-                  {/* Honorario bruto referencia (sin reducción) */}
-                  {tipoCalculo === "cuantia" && calc.rl_pct > 0 && (
-                    <div style={{ fontSize: 10, color: "#a8a29e", marginBottom: 4, fontStyle: "italic" }}>Sin reducción: {fmt(calc.honorarios_brutos_ref)} {"\u20ac"}</div>
-                  )}
-
-                  {tipoCalculo === "cuantia" && (
-                    <>
-                      <FRow label="Honorarios brutos" value={calc.honorarios} />
-                      {calc.n_lotes > 1 && (
-                        <div style={{ fontSize: 10, color: "#a8a29e", marginTop: -2, marginBottom: 4, paddingLeft: 4 }}>({calc.n_lotes} lotes × {fmt(calc.hon_por_lote)}{"\u20ac"}/lote)</div>
+                  {/* Per-concept honorarios */}
+                  {calc.conceptos.map((cc, i) => (
+                    <div key={i}>
+                      <FRow label={cc.name} value={cc.honorarios_netos} highlight />
+                      {cc.n_lotes > 1 && (
+                        <div style={{ fontSize: 10, color: "#a8a29e", marginTop: -2, marginBottom: 4, paddingLeft: 4 }}>({cc.n_lotes} lotes × {fmt(cc.hon_por_lote)}{"\u20ac"}/lote)</div>
                       )}
-                      {calc.rl_pct > 0 && <FRow label={`Reducción (\u2212${calc.rl_pct}%)`} value={-(calc.honorarios - calc.honorarios_netos)} color="#92702a" />}
-                    </>
-                  )}
-                  {tipoCalculo === "fijo" && <FRow label="Tarifa fija" value={calc.honorarios} />}
-                  {tipoCalculo === "arancel_fijo" && <FRow label="Arancel fijo" value={calc.honorarios} />}
-                  {tipoCalculo === "sin_cuantia" && <FRow label="Doc. sin cuantía" value={calc.honorarios} />}
-                  {tipoCalculo === "gratuito" && <FRow label="Gratuito" value={0} />}
-
-                  <FRow label="Honorarios netos" value={calc.honorarios_netos} highlight />
+                    </div>
+                  ))}
+                  {calc.conceptos.length > 1 && <FRow label="Total honorarios netos" value={calc.honorarios_netos} highlight color="#92702a" />}
 
                   {calc.copias_aut > 0 && <FRow label="Copias autorizadas" value={calc.copias_aut} />}
                   {calc.copias_sim > 0 && <FRow label="Copias simples" value={calc.copias_sim} />}
